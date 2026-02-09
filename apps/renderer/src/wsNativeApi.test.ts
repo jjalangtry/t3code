@@ -378,6 +378,31 @@ describe("wsNativeApi", () => {
     });
   });
 
+  it("sends dialogs.pickFolder requests and resolves value", async () => {
+    setWindowSearch("?ws=ws%3A%2F%2F127.0.0.1%3A4417");
+    const { getOrCreateWsNativeApi } = await import("./wsNativeApi");
+    const api = getOrCreateWsNativeApi();
+
+    const request = api.dialogs.pickFolder();
+    const socket = MockWebSocket.instances[0];
+    await waitForCondition(() => (socket?.sentMessages.length ?? 0) > 0);
+    const requestEnvelope = JSON.parse(socket?.sentMessages[0] ?? "{}") as {
+      id: string;
+      method: string;
+    };
+    expect(requestEnvelope.method).toBe("dialogs.pickFolder");
+
+    socket?.emitMessage(
+      JSON.stringify({
+        type: "response",
+        id: requestEnvelope.id,
+        ok: true,
+        result: "/workspace",
+      }),
+    );
+    await expect(request).resolves.toBe("/workspace");
+  });
+
   it("sends providers.listSessions requests and resolves payload", async () => {
     setWindowSearch("?ws=ws%3A%2F%2F127.0.0.1%3A4415");
     const { getOrCreateWsNativeApi } = await import("./wsNativeApi");
@@ -507,6 +532,78 @@ describe("wsNativeApi", () => {
       }),
     );
     await expect(removeRequest).resolves.toEqual([]);
+  });
+
+  it("sends agent spawn/write/kill requests with expected payloads", async () => {
+    setWindowSearch("?ws=ws%3A%2F%2F127.0.0.1%3A4418");
+    const { getOrCreateWsNativeApi } = await import("./wsNativeApi");
+    const api = getOrCreateWsNativeApi();
+
+    const spawnRequest = api.agent.spawn({
+      command: "bash",
+      args: ["-lc", "echo hi"],
+      cwd: "/workspace",
+    });
+    const socket = await waitForSocket();
+    await waitForCondition(() => (socket?.sentMessages.length ?? 0) >= 1);
+    const spawnEnvelope = JSON.parse(socket?.sentMessages[0] ?? "{}") as {
+      id: string;
+      method: string;
+      params: { command: string; args: string[]; cwd: string };
+    };
+    expect(spawnEnvelope.method).toBe("agent.spawn");
+    expect(spawnEnvelope.params).toEqual({
+      command: "bash",
+      args: ["-lc", "echo hi"],
+      cwd: "/workspace",
+    });
+    socket?.emitMessage(
+      JSON.stringify({
+        type: "response",
+        id: spawnEnvelope.id,
+        ok: true,
+        result: "agent-session-1",
+      }),
+    );
+    await expect(spawnRequest).resolves.toBe("agent-session-1");
+
+    const writeRequest = api.agent.write("agent-session-1", "input");
+    await waitForCondition(() => (socket?.sentMessages.length ?? 0) >= 2);
+    const writeEnvelope = JSON.parse(socket?.sentMessages[1] ?? "{}") as {
+      id: string;
+      method: string;
+      params: { sessionId: string; data: string };
+    };
+    expect(writeEnvelope.method).toBe("agent.write");
+    expect(writeEnvelope.params).toEqual({ sessionId: "agent-session-1", data: "input" });
+    socket?.emitMessage(
+      JSON.stringify({
+        type: "response",
+        id: writeEnvelope.id,
+        ok: true,
+        result: null,
+      }),
+    );
+    await expect(writeRequest).resolves.toBeUndefined();
+
+    const killRequest = api.agent.kill("agent-session-1");
+    await waitForCondition(() => (socket?.sentMessages.length ?? 0) >= 3);
+    const killEnvelope = JSON.parse(socket?.sentMessages[2] ?? "{}") as {
+      id: string;
+      method: string;
+      params: string;
+    };
+    expect(killEnvelope.method).toBe("agent.kill");
+    expect(killEnvelope.params).toBe("agent-session-1");
+    socket?.emitMessage(
+      JSON.stringify({
+        type: "response",
+        id: killEnvelope.id,
+        ok: true,
+        result: null,
+      }),
+    );
+    await expect(killRequest).resolves.toBeUndefined();
   });
 
   it("rejects requests when websocket connection fails", async () => {
