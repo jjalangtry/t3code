@@ -144,6 +144,7 @@ describe("runtimeApiServer", () => {
     if (hello.type !== "hello") {
       throw new Error("Expected hello message.");
     }
+    expect(hello.version).toBe(1);
     expect(hello.launchCwd).toBe(process.cwd());
 
     const response = await sendRequest(
