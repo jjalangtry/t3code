@@ -321,6 +321,16 @@ async function main() {
         `Smoke test failed: expected weak conditional asset status 304, received ${weakConditionalAsset.status}.`,
       );
     }
+    const wildcardConditionalAsset = await fetch(assetUrl, {
+      headers: {
+        "If-None-Match": "*",
+      },
+    });
+    if (wildcardConditionalAsset.status !== 304) {
+      throw new Error(
+        `Smoke test failed: expected wildcard conditional asset status 304, received ${wildcardConditionalAsset.status}.`,
+      );
+    }
     const modifiedSinceAsset = await fetch(assetUrl, {
       headers: {
         "If-Modified-Since": assetLastModified,
@@ -372,6 +382,16 @@ async function main() {
     }
     if ((ifMatchMismatchAsset.headers.get("x-content-type-options") ?? "").toLowerCase() !== "nosniff") {
       throw new Error("Smoke test failed: expected nosniff on If-Match mismatch response.");
+    }
+    const ifMatchWildcardAsset = await fetch(assetUrl, {
+      headers: {
+        "If-Match": "*",
+      },
+    });
+    if (ifMatchWildcardAsset.status !== 200) {
+      throw new Error(
+        `Smoke test failed: expected wildcard If-Match status 200, received ${ifMatchWildcardAsset.status}.`,
+      );
     }
     if (ifMatchMismatchAsset.headers.get("etag") !== assetEtag) {
       throw new Error("Smoke test failed: expected ETag on If-Match mismatch response.");
