@@ -2371,6 +2371,25 @@ describe("wsNativeApi", () => {
         type: "response",
         id: requestEnvelope.id,
         ok: true,
+      }),
+    );
+    socket?.emitMessage(
+      JSON.stringify({
+        type: "response",
+        id: requestEnvelope.id,
+        ok: false,
+        result: { invalid: true },
+        error: {
+          code: "request_failed",
+          message: "invalid-error-shape",
+        },
+      }),
+    );
+    socket?.emitMessage(
+      JSON.stringify({
+        type: "response",
+        id: requestEnvelope.id,
+        ok: true,
         result: [],
       }),
     );
