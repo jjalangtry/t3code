@@ -1542,6 +1542,8 @@ async function main() {
     if (!parsedWsUrl.searchParams.get("token")) {
       throw new Error("Smoke test failed: websocket URL is missing runtime auth token.");
     }
+    const runtimeAuthToken = parsedWsUrl.searchParams.get("token") ?? "";
+    const runtimeAuthTokenParam = encodeURIComponent(runtimeAuthToken);
 
     const unauthorizedWsUrl = `${parsedWsUrl.origin}${parsedWsUrl.pathname}`;
     const unauthorizedWs = new WebSocket(unauthorizedWsUrl);
@@ -1556,9 +1558,7 @@ async function main() {
     );
 
     const wrongTokenKeyWs = new WebSocket(
-      `${parsedWsUrl.origin}${parsedWsUrl.pathname}?Token=${encodeURIComponent(
-        parsedWsUrl.searchParams.get("token") ?? "",
-      )}`,
+      `${parsedWsUrl.origin}${parsedWsUrl.pathname}?Token=${runtimeAuthTokenParam}`,
     );
     await waitForUnauthorizedCloseWithoutMessages(wrongTokenKeyWs, "wrong-token-key");
 
@@ -1576,30 +1576,22 @@ async function main() {
     await waitForUnauthorizedCloseWithoutMessages(whitespaceTokenWs, "whitespace-token");
 
     const duplicateTokenWs = new WebSocket(
-      `${parsedWsUrl.origin}${parsedWsUrl.pathname}?token=${encodeURIComponent(
-        parsedWsUrl.searchParams.get("token") ?? "",
-      )}&token=wrong-token`,
+      `${parsedWsUrl.origin}${parsedWsUrl.pathname}?token=${runtimeAuthTokenParam}&token=wrong-token`,
     );
     await waitForUnauthorizedCloseWithoutMessages(duplicateTokenWs, "duplicate-token");
 
     const duplicateSameTokenWs = new WebSocket(
-      `${parsedWsUrl.origin}${parsedWsUrl.pathname}?token=${encodeURIComponent(
-        parsedWsUrl.searchParams.get("token") ?? "",
-      )}&token=${encodeURIComponent(parsedWsUrl.searchParams.get("token") ?? "")}`,
+      `${parsedWsUrl.origin}${parsedWsUrl.pathname}?token=${runtimeAuthTokenParam}&token=${runtimeAuthTokenParam}`,
     );
     await waitForUnauthorizedCloseWithoutMessages(duplicateSameTokenWs, "duplicate-same-token");
 
     const extraParamTokenWs = new WebSocket(
-      `${parsedWsUrl.origin}${parsedWsUrl.pathname}?token=${encodeURIComponent(
-        parsedWsUrl.searchParams.get("token") ?? "",
-      )}&debug=1`,
+      `${parsedWsUrl.origin}${parsedWsUrl.pathname}?token=${runtimeAuthTokenParam}&debug=1`,
     );
     await waitForUnauthorizedCloseWithoutMessages(extraParamTokenWs, "extra-param-token");
 
     const wrongPathTokenWs = new WebSocket(
-      `${parsedWsUrl.origin}/unexpected?token=${encodeURIComponent(
-        parsedWsUrl.searchParams.get("token") ?? "",
-      )}`,
+      `${parsedWsUrl.origin}/unexpected?token=${runtimeAuthTokenParam}`,
     );
     await waitForUnauthorizedCloseWithoutMessages(wrongPathTokenWs, "wrong-path-token");
 
@@ -2174,9 +2166,7 @@ async function main() {
     }
 
     const duplicateTokenWhileConnectedWs = new WebSocket(
-      `${parsedWsUrl.origin}${parsedWsUrl.pathname}?token=${encodeURIComponent(
-        parsedWsUrl.searchParams.get("token") ?? "",
-      )}&token=wrong-token`,
+      `${parsedWsUrl.origin}${parsedWsUrl.pathname}?token=${runtimeAuthTokenParam}&token=wrong-token`,
     );
     await waitForUnauthorizedCloseWithoutMessages(
       duplicateTokenWhileConnectedWs,
@@ -2184,9 +2174,7 @@ async function main() {
     );
 
     const duplicateSameTokenWhileConnectedWs = new WebSocket(
-      `${parsedWsUrl.origin}${parsedWsUrl.pathname}?token=${encodeURIComponent(
-        parsedWsUrl.searchParams.get("token") ?? "",
-      )}&token=${encodeURIComponent(parsedWsUrl.searchParams.get("token") ?? "")}`,
+      `${parsedWsUrl.origin}${parsedWsUrl.pathname}?token=${runtimeAuthTokenParam}&token=${runtimeAuthTokenParam}`,
     );
     await waitForUnauthorizedCloseWithoutMessages(
       duplicateSameTokenWhileConnectedWs,
@@ -2194,9 +2182,7 @@ async function main() {
     );
 
     const extraParamWhileConnectedWs = new WebSocket(
-      `${parsedWsUrl.origin}${parsedWsUrl.pathname}?token=${encodeURIComponent(
-        parsedWsUrl.searchParams.get("token") ?? "",
-      )}&debug=1`,
+      `${parsedWsUrl.origin}${parsedWsUrl.pathname}?token=${runtimeAuthTokenParam}&debug=1`,
     );
     await waitForUnauthorizedCloseWithoutMessages(
       extraParamWhileConnectedWs,
