@@ -3,11 +3,19 @@ type PerfToggleEnv = {
   CI?: string | undefined;
 };
 
-const CI_TRUE_VALUES = new Set(["1", "true", "yes", "on"]);
+const TRUE_VALUES = new Set(["1", "true", "yes", "on"]);
+const FALSE_VALUES = new Set(["0", "false", "no", "off"]);
+
+function parseBooleanLike(value: string | undefined): boolean | null {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return null;
+  if (TRUE_VALUES.has(normalized)) return true;
+  if (FALSE_VALUES.has(normalized)) return false;
+  return null;
+}
 
 function isCiEnvironment(value: string | undefined): boolean {
-  const normalized = value?.trim().toLowerCase();
-  return normalized ? CI_TRUE_VALUES.has(normalized) : false;
+  return parseBooleanLike(value) === true;
 }
 
 /**
@@ -18,8 +26,7 @@ function isCiEnvironment(value: string | undefined): boolean {
  * flaky PTY-dependent interactions in ephemeral Linux runners.
  */
 export function shouldRunTerminalPerfInteractions(env: PerfToggleEnv): boolean {
-  const raw = env.T3CODE_DESKTOP_PERF_RUN_TERMINAL?.trim().toLowerCase();
-  if (raw === "1" || raw === "true") return true;
-  if (raw === "0" || raw === "false") return false;
+  const toggleOverride = parseBooleanLike(env.T3CODE_DESKTOP_PERF_RUN_TERMINAL);
+  if (toggleOverride !== null) return toggleOverride;
   return !isCiEnvironment(env.CI);
 }

@@ -36,6 +36,18 @@ describe("shouldRunTerminalPerfInteractions", () => {
         CI: "true",
       }),
     ).toBe(true);
+    expect(
+      shouldRunTerminalPerfInteractions({
+        T3CODE_DESKTOP_PERF_RUN_TERMINAL: " yes ",
+        CI: "true",
+      }),
+    ).toBe(true);
+    expect(
+      shouldRunTerminalPerfInteractions({
+        T3CODE_DESKTOP_PERF_RUN_TERMINAL: "ON",
+        CI: "true",
+      }),
+    ).toBe(true);
   });
 
   it("supports explicit false values", () => {
@@ -54,6 +66,18 @@ describe("shouldRunTerminalPerfInteractions", () => {
     expect(
       shouldRunTerminalPerfInteractions({
         T3CODE_DESKTOP_PERF_RUN_TERMINAL: "FALSE",
+        CI: "false",
+      }),
+    ).toBe(false);
+    expect(
+      shouldRunTerminalPerfInteractions({
+        T3CODE_DESKTOP_PERF_RUN_TERMINAL: " no ",
+        CI: "false",
+      }),
+    ).toBe(false);
+    expect(
+      shouldRunTerminalPerfInteractions({
+        T3CODE_DESKTOP_PERF_RUN_TERMINAL: "OFF",
         CI: "false",
       }),
     ).toBe(false);
