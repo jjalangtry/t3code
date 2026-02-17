@@ -70,6 +70,54 @@ function mb(bytes) {
   return bytes / (1024 * 1024);
 }
 
+function resolveNonNegativeNumberEnv({ name, value, fallback }) {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (Number.isFinite(parsed) && parsed >= 0) {
+    return parsed;
+  }
+  console.warn(
+    `[desktop-perf] invalid ${name}="${value}" (expected non-negative number); using ${fallback}`,
+  );
+  return fallback;
+}
+
+function resolveNonNegativeIntegerEnv({ name, value, fallback }) {
+  const parsed = resolveNonNegativeNumberEnv({ name, value, fallback });
+  if (parsed === fallback) {
+    return fallback;
+  }
+  const normalized = Math.trunc(parsed);
+  if (normalized !== parsed) {
+    console.warn(
+      `[desktop-perf] non-integer ${name}="${value}" truncated to ${normalized} for consistency`,
+    );
+  }
+  return normalized;
+}
+
+function resolvePositiveIntegerEnv({ name, value, fallback }) {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (Number.isFinite(parsed) && parsed > 0) {
+    const normalized = Math.trunc(parsed);
+    if (normalized !== parsed) {
+      console.warn(
+        `[desktop-perf] non-integer ${name}="${value}" truncated to ${normalized} for consistency`,
+      );
+    }
+    return normalized;
+  }
+  console.warn(
+    `[desktop-perf] invalid ${name}="${value}" (expected positive number); using ${fallback}`,
+  );
+  return fallback;
+}
+
 function summarizeTrace(tracePath) {
   const payload = JSON.parse(fs.readFileSync(tracePath, "utf8"));
   const events = payload.traceEvents;
@@ -616,10 +664,26 @@ async function main() {
   }
   prepareDesktopPerfState(stateDir, seedProjects ?? defaultPerfProjects);
 
-  const maxKeypressAvgMs = Number(process.env.T3CODE_PERF_MAX_KEYPRESS_AVG_MS ?? "12");
-  const maxKeypressMaxMs = Number(process.env.T3CODE_PERF_MAX_KEYPRESS_MAX_MS ?? "24");
-  const maxLongDispatchCount = Number(process.env.T3CODE_PERF_MAX_LONG_DISPATCH_COUNT ?? "0");
-  const timeoutMs = Number(process.env.T3CODE_PERF_TIMEOUT_MS ?? "420000");
+  const maxKeypressAvgMs = resolveNonNegativeNumberEnv({
+    name: "T3CODE_PERF_MAX_KEYPRESS_AVG_MS",
+    value: process.env.T3CODE_PERF_MAX_KEYPRESS_AVG_MS,
+    fallback: 12,
+  });
+  const maxKeypressMaxMs = resolveNonNegativeNumberEnv({
+    name: "T3CODE_PERF_MAX_KEYPRESS_MAX_MS",
+    value: process.env.T3CODE_PERF_MAX_KEYPRESS_MAX_MS,
+    fallback: 24,
+  });
+  const maxLongDispatchCount = resolveNonNegativeIntegerEnv({
+    name: "T3CODE_PERF_MAX_LONG_DISPATCH_COUNT",
+    value: process.env.T3CODE_PERF_MAX_LONG_DISPATCH_COUNT,
+    fallback: 0,
+  });
+  const timeoutMs = resolvePositiveIntegerEnv({
+    name: "T3CODE_PERF_TIMEOUT_MS",
+    value: process.env.T3CODE_PERF_TIMEOUT_MS,
+    fallback: 420000,
+  });
 
   const child = spawn("bun", ["dev:desktop"], {
     cwd: repoRoot,
