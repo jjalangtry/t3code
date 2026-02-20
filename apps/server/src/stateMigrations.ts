@@ -1,6 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Migrator from "effect/unstable/sql/Migrator";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { PersistenceInitializationError } from "./persistence/errors";
 import { MIGRATION_V1_SQL } from "./persistence/migrations";
 import type { EffectSqliteDatabaseAdapter, SqliteDatabase } from "./sqliteAdapter";
 
@@ -11,15 +12,6 @@ export function applyStateDbPragmas(db: SqliteDatabase): void {
   db.exec("PRAGMA synchronous=FULL;");
   db.exec("PRAGMA busy_timeout=5000;");
   db.exec("PRAGMA foreign_keys=ON;");
-}
-
-function readUserVersion(db: SqliteDatabase): number {
-  const row = db.prepare("PRAGMA user_version;").get() as { user_version?: number } | undefined;
-  const value = row?.user_version;
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
-    return 0;
-  }
-  return value;
 }
 
 function normalizeStatementBatch(sql: string): string[] {
@@ -64,10 +56,6 @@ function normalizeStatementBatch(sql: string): string[] {
   return statements;
 }
 
-function migrationV1(db: SqliteDatabase): void {
-  db.exec(MIGRATION_V1_SQL);
-}
-
 function isEffectSqliteDatabase(db: SqliteDatabase): db is EffectSqliteDatabaseAdapter {
   return "runWithSqlClient" in db && typeof db.runWithSqlClient === "function";
 }
@@ -102,25 +90,8 @@ function runEffectMigrations(db: EffectSqliteDatabaseAdapter): void {
 export function runStateMigrations(db: SqliteDatabase): void {
   applyStateDbPragmas(db);
 
-  if (isEffectSqliteDatabase(db)) {
-    runEffectMigrations(db);
-    return;
+  if (!isEffectSqliteDatabase(db)) {
+    throw new PersistenceInitializationError("Expected Effect-backed sqlite adapter for migrations");
   }
-
-  const userVersion = readUserVersion(db);
-  if (userVersion >= STATE_DB_SCHEMA_VERSION) {
-    return;
-  }
-
-  db.exec("BEGIN IMMEDIATE;");
-  try {
-    if (userVersion < 1) {
-      migrationV1(db);
-    }
-    db.exec(`PRAGMA user_version=${STATE_DB_SCHEMA_VERSION};`);
-    db.exec("COMMIT;");
-  } catch (error) {
-    db.exec("ROLLBACK;");
-    throw error;
-  }
+  runEffectMigrations(db);
 }
