@@ -514,11 +514,14 @@ describe("isLatestTurnSettled", () => {
 });
 
 describe("PROVIDER_OPTIONS", () => {
-  it("only advertises codex in the stack base", () => {
+  it("advertises codex and cursor on the cursor branch", () => {
     const claude = PROVIDER_OPTIONS.find((option) => option.value === "claudeCode");
     const cursor = PROVIDER_OPTIONS.find((option) => option.value === "cursor");
-    expect(PROVIDER_OPTIONS).toEqual([{ value: "codex", label: "Codex", available: true }]);
+    expect(cursor).toEqual({
+      value: "cursor",
+      label: "Cursor Agent",
+      available: true,
+    });
     expect(claude).toBeUndefined();
-    expect(cursor).toBeUndefined();
   });
 });

@@ -16,6 +16,7 @@ export const PROVIDER_OPTIONS: Array<{
   available: boolean;
 }> = [
   { value: "codex", label: "Codex", available: true },
+  { value: "cursor", label: "Cursor Agent", available: true },
 ];
 
 export interface WorkLogEntry {
