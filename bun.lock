@@ -34,7 +34,7 @@
       "name": "t3",
       "version": "0.0.0-alpha.20",
       "bin": {
-        "t3": "./dist/index.mjs",
+        "t3": "./dist/bin.mjs",
       },
       "dependencies": {
         "@effect/platform-node": "catalog:",

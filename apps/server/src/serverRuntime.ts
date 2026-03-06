@@ -77,6 +77,8 @@ const resolveBootstrapState = Effect.fn(function* () {
         projectId,
         title: "New thread",
         model: defaultModel,
+        interactionMode: "default",
+        runtimeMode: "full-access",
         branch: null,
         worktreePath: null,
         createdAt,

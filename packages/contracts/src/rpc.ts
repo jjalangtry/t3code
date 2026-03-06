@@ -7,11 +7,10 @@ import {
   OrchestrationEvent,
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetFullThreadDiffResult,
-  OrchestrationGetSnapshotResult,
   OrchestrationGetTurnDiffInput,
   OrchestrationGetTurnDiffResult,
   OrchestrationReplayEventsInput,
-  OrchestrationReplayEventsResult,
+  OrchestrationRpcSchemas,
   ClientOrchestrationCommand,
 } from "./orchestration";
 import {
@@ -82,7 +81,7 @@ export const SubscribeServerConfigRpc = Rpc.make("subscribeServerConfig", {
 });
 
 export const GetSnapshotRpc = Rpc.make("getSnapshot", {
-  success: OrchestrationGetSnapshotResult,
+  success: OrchestrationRpcSchemas.getSnapshot.output,
   ...rpcOptions,
 });
 
@@ -106,7 +105,7 @@ export const GetFullThreadDiffRpc = Rpc.make("getFullThreadDiff", {
 
 export const ReplayEventsRpc = Rpc.make("replayEvents", {
   payload: OrchestrationReplayEventsInput,
-  success: OrchestrationReplayEventsResult,
+  success: OrchestrationRpcSchemas.replayEvents.output,
   ...rpcOptions,
 });
 

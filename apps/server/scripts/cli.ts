@@ -113,7 +113,6 @@ const publishCmd = Command.make(
           const pkg = {
             name: serverPackageJson.name,
             repository: serverPackageJson.repository,
-            bin: serverPackageJson.bin,
             type: serverPackageJson.type,
             bin: {
               t3: "./dist/bin.mjs",
