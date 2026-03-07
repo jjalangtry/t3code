@@ -156,6 +156,21 @@ function toMessage(cause: unknown, fallback: string): string {
   return fallback;
 }
 
+function enrichClaudeErrorMessage(raw: string): string {
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes("enoent") ||
+    lower.includes("not found") ||
+    lower.includes("command not found")
+  ) {
+    return `${raw} — Claude Code CLI (\`claude\`) is not installed or not on PATH.`;
+  }
+  if (lower.includes("exited with code")) {
+    return `${raw} — Ensure Claude Code CLI is installed and authenticated. Run \`claude auth login\` to authenticate.`;
+  }
+  return raw;
+}
+
 function asRuntimeItemId(value: string): RuntimeItemId {
   return RuntimeItemId.makeUnsafe(value);
 }
@@ -1295,7 +1310,9 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
             if (Cause.hasInterruptsOnly(cause) || context.stopped) {
               return;
             }
-            const message = toMessage(Cause.squash(cause), "Claude runtime stream failed.");
+            const message = enrichClaudeErrorMessage(
+              toMessage(Cause.squash(cause), "Claude runtime stream failed."),
+            );
             yield* emitRuntimeError(context, message, cause);
             yield* completeTurn(context, "failed", message);
           }),
@@ -1587,7 +1604,9 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
             new ProviderAdapterProcessError({
               provider: PROVIDER,
               threadId,
-              detail: toMessage(cause, "Failed to start Claude runtime session."),
+              detail: enrichClaudeErrorMessage(
+                toMessage(cause, "Failed to start Claude runtime session."),
+              ),
               cause,
             }),
         });
