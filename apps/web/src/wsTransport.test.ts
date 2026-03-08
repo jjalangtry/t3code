@@ -14,10 +14,12 @@ class MockWebSocket {
   static readonly CLOSED = 3;
 
   readyState = MockWebSocket.CONNECTING;
+  readonly url: string;
   readonly sent: string[] = [];
   private readonly listeners = new Map<WsEventType, Set<WsListener>>();
 
-  constructor(_url: string) {
+  constructor(url: string) {
+    this.url = url;
     sockets.push(this);
   }
 
@@ -70,8 +72,15 @@ beforeEach(() => {
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: {
-      location: { hostname: "localhost", port: "3020" },
+      location: {
+        protocol: "http:",
+        host: "localhost:3020",
+        hostname: "localhost",
+        port: "3020",
+      },
       desktopBridge: undefined,
+      __T3CODE_WS_TOKEN__: undefined,
+      __T3CODE_WS_URL__: undefined,
     },
   });
 
@@ -84,6 +93,52 @@ afterEach(() => {
 });
 
 describe("WsTransport", () => {
+  it("uses an injected websocket auth token when no desktop bridge is present", () => {
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        location: {
+          protocol: "http:",
+          host: "localhost:3020",
+          hostname: "localhost",
+          port: "3020",
+        },
+        desktopBridge: undefined,
+        __T3CODE_WS_TOKEN__: "secret-token",
+        __T3CODE_WS_URL__: undefined,
+      },
+    });
+
+    const transport = new WsTransport();
+
+    expect(getSocket().url).toBe("ws://localhost:3020/?token=secret-token");
+
+    transport.dispose();
+  });
+
+  it("uses wss for https-served pages", () => {
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        location: {
+          protocol: "https:",
+          host: "app.jjalangty.com",
+          hostname: "app.jjalangty.com",
+          port: "",
+        },
+        desktopBridge: undefined,
+        __T3CODE_WS_TOKEN__: undefined,
+        __T3CODE_WS_URL__: undefined,
+      },
+    });
+
+    const transport = new WsTransport();
+
+    expect(getSocket().url).toBe("wss://app.jjalangty.com");
+
+    transport.dispose();
+  });
+
   it("routes valid push envelopes to channel listeners", () => {
     const transport = new WsTransport("ws://localhost:3020");
     const socket = getSocket();

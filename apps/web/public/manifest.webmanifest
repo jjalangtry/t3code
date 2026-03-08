@@ -1,0 +1,19 @@
+{
+  "name": "jjalangtry",
+  "short_name": "jjalangtry",
+  "description": "jjalangtry workspace",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b0b0c",
+  "theme_color": "#0b0b0c",
+  "icons": [
+    {
+      "src": "/jakob-icon.png",
+      "sizes": "256x248",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

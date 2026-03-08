@@ -137,6 +137,7 @@ import {
   FolderClosedIcon,
   LockIcon,
   LockOpenIcon,
+  TerminalIcon,
   Undo2Icon,
   XIcon,
   CopyIcon,
@@ -709,6 +710,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const storeNewTerminal = useTerminalStateStore((s) => s.newTerminal);
   const storeSetActiveTerminal = useTerminalStateStore((s) => s.setActiveTerminal);
   const storeCloseTerminal = useTerminalStateStore((s) => s.closeTerminal);
+  // Global terminal preferences
+  const terminalPosition = useTerminalStateStore((s) => s.terminalPosition);
+  const terminalWidth = useTerminalStateStore((s) => s.terminalWidth);
+  const terminalForceDark = useTerminalStateStore((s) => s.terminalForceDark);
+  const storeSetTerminalPosition = useTerminalStateStore((s) => s.setTerminalPosition);
+  const storeSetTerminalWidth = useTerminalStateStore((s) => s.setTerminalWidth);
+  const storeSetTerminalForceDark = useTerminalStateStore((s) => s.setTerminalForceDark);
 
   const setPrompt = useCallback(
     (nextPrompt: string) => {
@@ -1304,6 +1312,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
     () => shortcutLabelForCommand(keybindings, "terminal.close"),
     [keybindings],
   );
+  const terminalToggleShortcutLabel = useMemo(
+    () => shortcutLabelForCommand(keybindings, "terminal.toggle"),
+    [keybindings],
+  );
   const diffPanelShortcutLabel = useMemo(
     () => shortcutLabelForCommand(keybindings, "diff.toggle"),
     [keybindings],
@@ -1372,6 +1384,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
     if (!activeThreadId) return;
     setTerminalOpen(!terminalState.terminalOpen);
   }, [activeThreadId, setTerminalOpen, terminalState.terminalOpen]);
+  const setTerminalWidth = useCallback(
+    (width: number) => {
+      storeSetTerminalWidth(width);
+    },
+    [storeSetTerminalWidth],
+  );
+  const toggleTerminalPosition = useCallback(() => {
+    storeSetTerminalPosition(terminalPosition === "right" ? "bottom" : "right");
+  }, [storeSetTerminalPosition, terminalPosition]);
+  const toggleTerminalForceDark = useCallback(() => {
+    storeSetTerminalForceDark(!terminalForceDark);
+  }, [storeSetTerminalForceDark, terminalForceDark]);
   const splitTerminal = useCallback(() => {
     if (!activeThreadId || hasReachedTerminalLimit) return;
     const terminalId = `terminal-${crypto.randomUUID()}`;
@@ -3402,22 +3426,36 @@ export default function ChatView({ threadId }: ChatViewProps) {
           }
           keybindings={keybindings}
           availableEditors={availableEditors}
+          terminalToggleShortcutLabel={terminalToggleShortcutLabel}
           diffToggleShortcutLabel={diffPanelShortcutLabel}
           gitCwd={gitCwd}
+          terminalOpen={terminalState.terminalOpen}
           diffOpen={diffOpen}
           onRunProjectScript={(script) => {
             void runProjectScript(script);
           }}
           onAddProjectScript={saveProjectScript}
           onUpdateProjectScript={updateProjectScript}
+          onToggleTerminal={toggleTerminalVisibility}
           onToggleDiff={onToggleDiff}
         />
       </header>
 
-      {/* Error banner */}
-      <ProviderHealthBanner status={activeProviderStatus} />
-      <ThreadErrorBanner error={activeThread.error} />
-      <PlanModePanel activePlan={activePlan} />
+      {/* Body: flex-row when terminal is docked to the right, flex-col otherwise */}
+      <div
+        className={cn(
+          "flex min-h-0 flex-1",
+          terminalPosition === "right" && terminalState.terminalOpen && activeProject
+            ? "flex-row overflow-hidden"
+            : "flex-col",
+        )}
+      >
+        {/* Main content column */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          {/* Error banner */}
+          <ProviderHealthBanner status={activeProviderStatus} />
+          <ThreadErrorBanner error={activeThread.error} />
+          <PlanModePanel activePlan={activePlan} />
 
       {/* Messages */}
       <div
@@ -3872,17 +3910,48 @@ export default function ChatView({ threadId }: ChatViewProps) {
         />
       )}
 
-      {(() => {
-        if (!terminalState.terminalOpen || !activeProject) {
-          return null;
-        }
-        return (
+          {/* Bottom terminal – only shown when position is "bottom" */}
+          {terminalState.terminalOpen && activeProject && terminalPosition !== "right" && (
+            <ThreadTerminalDrawer
+              key={activeThread.id}
+              threadId={activeThread.id}
+              cwd={gitCwd ?? activeProject.cwd}
+              runtimeEnv={threadTerminalRuntimeEnv}
+              height={terminalState.terminalHeight}
+              width={terminalWidth}
+              position="bottom"
+              forceDark={terminalForceDark}
+              terminalIds={terminalState.terminalIds}
+              activeTerminalId={terminalState.activeTerminalId}
+              terminalGroups={terminalState.terminalGroups}
+              activeTerminalGroupId={terminalState.activeTerminalGroupId}
+              focusRequestId={terminalFocusRequestId}
+              onSplitTerminal={splitTerminal}
+              onNewTerminal={createNewTerminal}
+              splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
+              newShortcutLabel={newTerminalShortcutLabel ?? undefined}
+              closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
+              onActiveTerminalChange={activateTerminal}
+              onCloseTerminal={closeTerminal}
+              onHeightChange={setTerminalHeight}
+              onWidthChange={setTerminalWidth}
+              onPositionToggle={toggleTerminalPosition}
+              onForceDarkToggle={toggleTerminalForceDark}
+            />
+          )}
+        </div>{/* end main content column */}
+
+        {/* Right sidebar terminal – only shown when position is "right" */}
+        {terminalState.terminalOpen && activeProject && terminalPosition === "right" && (
           <ThreadTerminalDrawer
             key={activeThread.id}
             threadId={activeThread.id}
             cwd={gitCwd ?? activeProject.cwd}
             runtimeEnv={threadTerminalRuntimeEnv}
             height={terminalState.terminalHeight}
+            width={terminalWidth}
+            position="right"
+            forceDark={terminalForceDark}
             terminalIds={terminalState.terminalIds}
             activeTerminalId={terminalState.activeTerminalId}
             terminalGroups={terminalState.terminalGroups}
@@ -3896,9 +3965,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
             onActiveTerminalChange={activateTerminal}
             onCloseTerminal={closeTerminal}
             onHeightChange={setTerminalHeight}
+            onWidthChange={setTerminalWidth}
+            onPositionToggle={toggleTerminalPosition}
+            onForceDarkToggle={toggleTerminalForceDark}
           />
-        );
-      })()}
+        )}
+      </div>{/* end body wrapper */}
 
       {expandedImage && expandedImageItem && (
         <div
@@ -3981,12 +4053,15 @@ interface ChatHeaderProps {
   preferredScriptId: string | null;
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
+  terminalToggleShortcutLabel: string | null;
   diffToggleShortcutLabel: string | null;
   gitCwd: string | null;
+  terminalOpen: boolean;
   diffOpen: boolean;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
+  onToggleTerminal: () => void;
   onToggleDiff: () => void;
 }
 
@@ -4000,12 +4075,15 @@ const ChatHeader = memo(function ChatHeader({
   preferredScriptId,
   keybindings,
   availableEditors,
+  terminalToggleShortcutLabel,
   diffToggleShortcutLabel,
   gitCwd,
+  terminalOpen,
   diffOpen,
   onRunProjectScript,
   onAddProjectScript,
   onUpdateProjectScript,
+  onToggleTerminal,
   onToggleDiff,
 }: ChatHeaderProps) {
   return (
@@ -4048,6 +4126,29 @@ const ChatHeader = memo(function ChatHeader({
           />
         )}
         {activeProjectName && <GitActionsControl gitCwd={gitCwd} activeThreadId={activeThreadId} />}
+        {activeProjectName && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Toggle
+                  className="shrink-0"
+                  pressed={terminalOpen}
+                  onPressedChange={onToggleTerminal}
+                  aria-label="Toggle terminal"
+                  variant="outline"
+                  size="xs"
+                >
+                  <TerminalIcon className="size-3" />
+                </Toggle>
+              }
+            />
+            <TooltipPopup side="bottom">
+              {terminalToggleShortcutLabel
+                ? `Toggle terminal (${terminalToggleShortcutLabel})`
+                : "Toggle terminal"}
+            </TooltipPopup>
+          </Tooltip>
+        )}
         <Tooltip>
           <TooltipTrigger
             render={

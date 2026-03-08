@@ -202,6 +202,22 @@ function messageFromCause(cause: Cause.Cause<unknown>): string {
   return message.length > 0 ? message : Cause.pretty(cause);
 }
 
+function injectWebsocketAuthIntoHtml(
+  html: Uint8Array,
+  authToken: string | undefined,
+): string | Uint8Array {
+  if (!authToken) {
+    return html;
+  }
+
+  const injectedScript = `<script>window.__T3CODE_WS_TOKEN__=${JSON.stringify(authToken)};</script>`;
+  const htmlText = Buffer.from(html).toString("utf8");
+  if (htmlText.includes("</head>")) {
+    return htmlText.replace("</head>", `${injectedScript}</head>`);
+  }
+  return `${injectedScript}${htmlText}`;
+}
+
 export type ServerCoreRuntimeServices =
   | OrchestrationEngineService
   | ProjectionSnapshotQuery
@@ -563,7 +579,11 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
             respond(404, { "Content-Type": "text/plain" }, "Not Found");
             return;
           }
-          respond(200, { "Content-Type": "text/html; charset=utf-8" }, indexData);
+          respond(
+            200,
+            { "Content-Type": "text/html; charset=utf-8" },
+            injectWebsocketAuthIntoHtml(indexData, authToken),
+          );
           return;
         }
 
@@ -575,7 +595,13 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           respond(500, { "Content-Type": "text/plain" }, "Internal Server Error");
           return;
         }
-        respond(200, { "Content-Type": contentType }, data);
+        respond(
+          200,
+          { "Content-Type": contentType },
+          contentType.startsWith("text/html")
+            ? injectWebsocketAuthIntoHtml(data, authToken)
+            : data,
+        );
       }),
     ).catch(() => {
       if (!res.headersSent) {

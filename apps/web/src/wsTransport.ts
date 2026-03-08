@@ -23,6 +23,35 @@ interface WsRequestEnvelope {
   };
 }
 
+function resolveDefaultWsUrl(): string {
+  const bridgeUrl = window.desktopBridge?.getWsUrl();
+  if (bridgeUrl && bridgeUrl.length > 0) {
+    return bridgeUrl;
+  }
+
+  const envUrl = import.meta.env.VITE_WS_URL as string | undefined;
+  if (envUrl && envUrl.length > 0) {
+    return envUrl;
+  }
+
+  const injectedWsUrl = window.__T3CODE_WS_URL__;
+  if (injectedWsUrl && injectedWsUrl.length > 0) {
+    return injectedWsUrl;
+  }
+
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const host =
+    window.location.host && window.location.host.length > 0
+      ? window.location.host
+      : `${window.location.hostname}:${window.location.port}`;
+  const injectedToken = window.__T3CODE_WS_TOKEN__;
+  const baseUrl = `${protocol}//${host}`;
+  if (!injectedToken || injectedToken.length === 0) {
+    return baseUrl;
+  }
+  return `${baseUrl}/?token=${encodeURIComponent(injectedToken)}`;
+}
+
 export class WsTransport {
   private ws: WebSocket | null = null;
   private nextId = 1;
@@ -34,17 +63,7 @@ export class WsTransport {
   private readonly url: string;
 
   constructor(url?: string) {
-    const bridgeUrl = window.desktopBridge?.getWsUrl();
-    // In dev mode, VITE_WS_URL points to the server's WebSocket endpoint.
-    // In production, the page is served by the WS server on the same host:port.
-    const envUrl = import.meta.env.VITE_WS_URL as string | undefined;
-    this.url =
-      url ??
-      (bridgeUrl && bridgeUrl.length > 0
-        ? bridgeUrl
-        : envUrl && envUrl.length > 0
-          ? envUrl
-          : `ws://${window.location.hostname}:${window.location.port}`);
+    this.url = url ?? resolveDefaultWsUrl();
     this.connect();
   }
 

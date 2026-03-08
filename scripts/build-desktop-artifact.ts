@@ -450,6 +450,9 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     appId: "com.t3tools.t3code",
     productName,
     artifactName: "T3-Code-${version}-${arch}.${ext}",
+    // Keep node-pty outside app.asar so Electron can load pty.node and execute
+    // spawn-helper in packaged desktop builds.
+    asarUnpack: ["node_modules/node-pty/**/*"],
     directories: {
       buildResources: "apps/desktop/resources",
     },
@@ -485,6 +488,26 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   }
 
   return buildConfig;
+});
+
+const createLinuxCompilerCompatWrapper = Effect.fn("createLinuxCompilerCompatWrapper")(function* (
+  wrapperPath: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const wrapperSource = `#!/usr/bin/env bash
+set -euo pipefail
+args=()
+for arg in "$@"; do
+  case "$arg" in
+    -std=gnu++20) args+=("-std=gnu++2a") ;;
+    -std=c++20) args+=("-std=c++2a") ;;
+    *) args+=("$arg") ;;
+  esac
+done
+exec "\${REAL_CXX:-g++}" "\${args[@]}"
+`;
+  yield* fs.writeFileString(wrapperPath, wrapperSource);
+  yield* fs.chmod(wrapperPath, 0o755);
 });
 
 const assertPlatformBuildResources = Effect.fn("assertPlatformBuildResources")(function* (
@@ -635,14 +658,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const stagePackageJsonString = yield* encodeJsonString(stagePackageJson);
   yield* fs.writeFileString(path.join(stageAppDir, "package.json"), `${stagePackageJsonString}\n`);
 
-  yield* Effect.log("[desktop-artifact] Installing staged production dependencies...");
-  yield* runCommand(
-    ChildProcess.make({
-      cwd: stageAppDir,
-      ...commandOutputOptions(options.verbose),
-    })`bun install --production`,
-  );
-
   const buildEnv: NodeJS.ProcessEnv = {
     ...process.env,
   };
@@ -651,6 +666,24 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       delete buildEnv[key];
     }
   }
+
+  if (process.platform === "linux") {
+    const compilerCompatWrapperPath = path.join(stageRoot, "cxx-compat-wrapper.sh");
+    yield* createLinuxCompilerCompatWrapper(compilerCompatWrapperPath);
+    buildEnv.REAL_CXX = buildEnv.CXX?.trim() || "g++";
+    buildEnv.CXX = compilerCompatWrapperPath;
+    buildEnv.npm_config_cxx = compilerCompatWrapperPath;
+  }
+
+  yield* Effect.log("[desktop-artifact] Installing staged production dependencies...");
+  yield* runCommand(
+    ChildProcess.make({
+      cwd: stageAppDir,
+      env: buildEnv,
+      ...commandOutputOptions(options.verbose),
+    })`npm install --omit=dev --no-package-lock`,
+  );
+
   if (!options.signed) {
     buildEnv.CSC_IDENTITY_AUTO_DISCOVERY = "false";
     delete buildEnv.CSC_LINK;
