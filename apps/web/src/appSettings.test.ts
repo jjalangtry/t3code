@@ -4,6 +4,9 @@ import {
   getAppModelOptions,
   getSlashModelOptions,
   normalizeCustomModelSlugs,
+  resolveAppClaudeMaxThinkingTokens,
+  resolveAppClaudePermissionMode,
+  resolveAppClaudeThinking,
   resolveAppServiceTier,
   shouldShowFastTierIcon,
   resolveAppModelSelection,
@@ -100,6 +103,37 @@ describe("resolveAppServiceTier", () => {
   it("preserves explicit service tier overrides", () => {
     expect(resolveAppServiceTier("fast")).toBe("fast");
     expect(resolveAppServiceTier("flex")).toBe("flex");
+  });
+});
+
+describe("resolveAppClaudePermissionMode", () => {
+  it("omits inherited permission mode overrides", () => {
+    expect(resolveAppClaudePermissionMode("inherit")).toBeUndefined();
+  });
+
+  it("preserves explicit Claude permission mode overrides", () => {
+    expect(resolveAppClaudePermissionMode("acceptEdits")).toBe("acceptEdits");
+  });
+});
+
+describe("resolveAppClaudeThinking", () => {
+  it("maps thinking UI modes to Claude model option booleans", () => {
+    expect(resolveAppClaudeThinking("inherit")).toBeUndefined();
+    expect(resolveAppClaudeThinking("on")).toBe(true);
+    expect(resolveAppClaudeThinking("off")).toBe(false);
+  });
+});
+
+describe("resolveAppClaudeMaxThinkingTokens", () => {
+  it("parses valid Claude thinking token overrides", () => {
+    expect(resolveAppClaudeMaxThinkingTokens("4096")).toBe(4096);
+    expect(resolveAppClaudeMaxThinkingTokens(" 0 ")).toBe(0);
+  });
+
+  it("ignores blank or invalid token overrides", () => {
+    expect(resolveAppClaudeMaxThinkingTokens("")).toBeUndefined();
+    expect(resolveAppClaudeMaxThinkingTokens("abc")).toBeUndefined();
+    expect(resolveAppClaudeMaxThinkingTokens("-1")).toBeUndefined();
   });
 });
 

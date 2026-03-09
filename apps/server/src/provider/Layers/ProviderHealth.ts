@@ -622,17 +622,6 @@ export const checkCursorProviderStatus: Effect.Effect<
 > = Effect.gen(function* () {
   const checkedAt = new Date().toISOString();
 
-  if (process.env.T3CODE_ENABLE_CURSOR_PROVIDER !== "1") {
-    return {
-      provider: CURSOR_PROVIDER,
-      status: "warning" as const,
-      available: false,
-      authStatus: "unknown" as const,
-      checkedAt,
-      message: "Cursor provider is disabled. Set `T3CODE_ENABLE_CURSOR_PROVIDER=1` to enable it.",
-    } satisfies ServerProviderStatus;
-  }
-
   const versionProbe = yield* runCursorCommand(["--version"]).pipe(
     Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
     Effect.result,

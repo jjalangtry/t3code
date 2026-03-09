@@ -22,10 +22,9 @@ import {
   RuntimeRequestId,
   ThreadId,
   TurnId as TurnIdBrand,
-  type RuntimeTaskId,
 } from "@t3tools/contracts";
 import { Effect, Layer, Queue, Stream } from "effect";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn } from "node:child_process";
 
 import {
   ProviderAdapterProcessError,
@@ -93,6 +92,8 @@ interface ClaudeSessionContext {
   session: ProviderSession;
   readonly binaryPath: string;
   readonly defaultPermissionMode?: string;
+  readonly defaultThinkingEnabled?: boolean;
+  readonly defaultMaxThinkingTokens?: number;
   readonly turns: Array<{
     readonly id: TurnId;
     readonly items: Array<unknown>;
@@ -124,10 +125,6 @@ function nextEventId() {
 
 function asRuntimeItemId(value: string): RuntimeItemId {
   return RuntimeItemId.makeUnsafe(value);
-}
-
-function asRuntimeTaskId(value: string): RuntimeTaskId {
-  return value as RuntimeTaskId;
 }
 
 function toMessage(cause: unknown, fallback: string): string {
@@ -209,6 +206,31 @@ function spawnClaudeTurnProcess(input: {
     stdio: ["ignore", "pipe", "pipe"],
   });
   return child as unknown as ClaudeCliTurnProcess;
+}
+
+function buildClaudeTurnEnv(input: {
+  readonly baseEnv: NodeJS.ProcessEnv;
+  readonly thinkingEnabled?: boolean;
+  readonly maxThinkingTokens?: number;
+}): NodeJS.ProcessEnv {
+  const env = { ...input.baseEnv };
+
+  if (input.thinkingEnabled === false) {
+    // Claude Code exposes thinking depth via MAX_THINKING_TOKENS. We infer that 0 disables it.
+    env.MAX_THINKING_TOKENS = "0";
+    return env;
+  }
+
+  if (input.maxThinkingTokens !== undefined) {
+    env.MAX_THINKING_TOKENS = String(input.maxThinkingTokens);
+    return env;
+  }
+
+  if (input.thinkingEnabled === true) {
+    delete env.MAX_THINKING_TOKENS;
+  }
+
+  return env;
 }
 
 function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
@@ -830,6 +852,8 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
         }
 
         const providerOptions = input.providerOptions?.claudeCode;
+        const defaultThinkingEnabled = input.modelOptions?.claudeCode?.thinking;
+        const defaultMaxThinkingTokens = providerOptions?.maxThinkingTokens;
         const resumeState = readClaudeResumeState(input.resumeCursor);
         const permissionMode =
           providerOptions?.permissionMode ??
@@ -858,6 +882,12 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
           session,
           binaryPath: providerOptions?.binaryPath ?? "claude",
           defaultPermissionMode: permissionMode,
+          ...(defaultThinkingEnabled !== undefined
+            ? { defaultThinkingEnabled }
+            : {}),
+          ...(defaultMaxThinkingTokens !== undefined
+            ? { defaultMaxThinkingTokens }
+            : {}),
           turns: [],
           turnState: undefined,
           providerThreadId: resumeState.resume,
@@ -887,6 +917,12 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
               ...(input.model ? { model: input.model } : {}),
               permissionMode,
               binaryPath: context.binaryPath,
+              ...(defaultThinkingEnabled !== undefined
+                ? { thinking: defaultThinkingEnabled }
+                : {}),
+              ...(defaultMaxThinkingTokens !== undefined
+                ? { maxThinkingTokens: defaultMaxThinkingTokens }
+                : {}),
             },
           },
           providerRefs: {},
@@ -930,6 +966,9 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
         const selectedModel = input.model ?? context.session.model;
         const permissionMode =
           input.interactionMode === "plan" ? "plan" : context.defaultPermissionMode ?? "default";
+        const thinkingEnabled =
+          input.modelOptions?.claudeCode?.thinking ?? context.defaultThinkingEnabled;
+        const maxThinkingTokens = context.defaultMaxThinkingTokens;
 
         const args = [
           "-p",
@@ -954,7 +993,11 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
               binaryPath: context.binaryPath,
               args,
               ...(context.session.cwd ? { cwd: context.session.cwd } : {}),
-              env: process.env,
+              env: buildClaudeTurnEnv({
+                baseEnv: process.env,
+                ...(thinkingEnabled !== undefined ? { thinkingEnabled } : {}),
+                ...(maxThinkingTokens !== undefined ? { maxThinkingTokens } : {}),
+              }),
             }),
           catch: (cause) =>
             new ProviderAdapterProcessError({
@@ -996,6 +1039,8 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
           turnId,
           payload: {
             ...(selectedModel ? { model: selectedModel } : {}),
+            ...(thinkingEnabled !== undefined ? { thinking: thinkingEnabled } : {}),
+            ...(maxThinkingTokens !== undefined ? { maxThinkingTokens } : {}),
           },
           providerRefs: {
             providerTurnId: String(turnId),

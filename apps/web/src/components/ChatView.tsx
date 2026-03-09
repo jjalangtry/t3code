@@ -205,8 +205,11 @@ import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import {
   getAppModelOptions,
+  resolveAppClaudeMaxThinkingTokens,
   resolveAppModelSelection,
+  resolveAppClaudePermissionMode,
   resolveAppServiceTier,
+  resolveAppClaudeThinking,
   shouldShowFastTierIcon,
   type AppServiceTier,
   useAppSettings,
@@ -830,16 +833,32 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const selectedCodexFastModeEnabled =
     selectedProvider === "codex" ? composerDraft.codexFastMode : false;
   const selectedModelOptionsForDispatch = useMemo(() => {
-    if (selectedProvider !== "codex") {
-      return undefined;
+    if (selectedProvider === "codex") {
+      const codexOptions = {
+        ...(supportsReasoningEffort && selectedEffort ? { reasoningEffort: selectedEffort } : {}),
+        ...(selectedCodexFastModeEnabled ? { fastMode: true } : {}),
+      };
+      return Object.keys(codexOptions).length > 0 ? { codex: codexOptions } : undefined;
     }
-    const codexOptions = {
-      ...(supportsReasoningEffort && selectedEffort ? { reasoningEffort: selectedEffort } : {}),
-      ...(selectedCodexFastModeEnabled ? { fastMode: true } : {}),
-    };
-    return Object.keys(codexOptions).length > 0 ? { codex: codexOptions } : undefined;
-  }, [selectedCodexFastModeEnabled, selectedEffort, selectedProvider, supportsReasoningEffort]);
+
+    if (selectedProvider === "claudeCode") {
+      const thinking = resolveAppClaudeThinking(settings.claudeThinkingMode);
+      return thinking !== undefined ? { claudeCode: { thinking } } : undefined;
+    }
+
+    return undefined;
+  }, [
+    selectedCodexFastModeEnabled,
+    selectedEffort,
+    selectedProvider,
+    settings.claudeThinkingMode,
+    supportsReasoningEffort,
+  ]);
   const providerOptionsForDispatch = useMemo(() => {
+    const claudePermissionMode = resolveAppClaudePermissionMode(settings.claudePermissionMode);
+    const claudeMaxThinkingTokens = resolveAppClaudeMaxThinkingTokens(
+      settings.claudeMaxThinkingTokens,
+    );
     const options = {
       ...(settings.codexBinaryPath || settings.codexHomePath
         ? {
@@ -849,10 +868,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
             },
           }
         : {}),
-      ...(settings.claudeBinaryPath
+      ...(settings.claudeBinaryPath ||
+      claudePermissionMode !== undefined ||
+      claudeMaxThinkingTokens !== undefined
         ? {
             claudeCode: {
-              binaryPath: settings.claudeBinaryPath,
+              ...(settings.claudeBinaryPath ? { binaryPath: settings.claudeBinaryPath } : {}),
+              ...(claudePermissionMode !== undefined
+                ? { permissionMode: claudePermissionMode }
+                : {}),
+              ...(claudeMaxThinkingTokens !== undefined
+                ? { maxThinkingTokens: claudeMaxThinkingTokens }
+                : {}),
             },
           }
         : {}),
@@ -866,7 +893,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
     };
     return Object.keys(options).length > 0 ? options : undefined;
   }, [
+    settings.claudeMaxThinkingTokens,
     settings.claudeBinaryPath,
+    settings.claudePermissionMode,
     settings.codexBinaryPath,
     settings.codexHomePath,
     settings.cursorBinaryPath,
@@ -5804,7 +5833,7 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
               />
               <span>{option.label}</span>
               <span className="ms-auto text-[11px] text-muted-foreground/80 uppercase tracking-[0.08em]">
-                Coming soon
+                Unavailable
               </span>
             </MenuItem>
           );

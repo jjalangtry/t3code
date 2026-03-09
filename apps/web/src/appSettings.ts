@@ -25,6 +25,61 @@ export const APP_SERVICE_TIER_OPTIONS = [
 ] as const;
 export type AppServiceTier = (typeof APP_SERVICE_TIER_OPTIONS)[number]["value"];
 const AppServiceTierSchema = Schema.Literals(["auto", "fast", "flex"]);
+export const APP_CLAUDE_PERMISSION_MODE_OPTIONS = [
+  {
+    value: "inherit",
+    label: "Inherit",
+    description: "Use T3 Code defaults based on the selected runtime mode.",
+  },
+  {
+    value: "default",
+    label: "Default",
+    description: "Require normal Claude Code approval behavior.",
+  },
+  {
+    value: "acceptEdits",
+    label: "Accept Edits",
+    description: "Auto-accept edits while still requesting other approvals.",
+  },
+  {
+    value: "plan",
+    label: "Plan",
+    description: "Keep Claude Code in planning mode for new sessions.",
+  },
+  {
+    value: "bypassPermissions",
+    label: "Bypass",
+    description: "Skip Claude Code permission prompts entirely.",
+  },
+] as const;
+export type AppClaudePermissionMode =
+  (typeof APP_CLAUDE_PERMISSION_MODE_OPTIONS)[number]["value"];
+const AppClaudePermissionModeSchema = Schema.Literals([
+  "inherit",
+  "default",
+  "acceptEdits",
+  "plan",
+  "bypassPermissions",
+]);
+export const APP_CLAUDE_THINKING_MODE_OPTIONS = [
+  {
+    value: "inherit",
+    label: "Inherit",
+    description: "Use Claude Code defaults unless a session override is configured elsewhere.",
+  },
+  {
+    value: "on",
+    label: "On",
+    description: "Explicitly enable Claude thinking for new turns.",
+  },
+  {
+    value: "off",
+    label: "Off",
+    description: "Disable Claude thinking for new turns.",
+  },
+] as const;
+export type AppClaudeThinkingMode = (typeof APP_CLAUDE_THINKING_MODE_OPTIONS)[number]["value"];
+const AppClaudeThinkingModeSchema = Schema.Literals(["inherit", "on", "off"]);
 const MODELS_WITH_FAST_SUPPORT = new Set(["gpt-5.4"]);
 const BUILT_IN_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>> = {
   codex: new Set(getModelOptions("codex").map((option) => option.slug)),
@@ -40,6 +95,15 @@ const AppSettingsSchema = Schema.Struct({
     Schema.withConstructorDefault(() => Option.some("")),
   ),
   claudeBinaryPath: Schema.String.check(Schema.isMaxLength(4096)).pipe(
+    Schema.withConstructorDefault(() => Option.some("")),
+  ),
+  claudePermissionMode: AppClaudePermissionModeSchema.pipe(
+    Schema.withConstructorDefault(() => Option.some("inherit")),
+  ),
+  claudeThinkingMode: AppClaudeThinkingModeSchema.pipe(
+    Schema.withConstructorDefault(() => Option.some("inherit")),
+  ),
+  claudeMaxThinkingTokens: Schema.String.check(Schema.isMaxLength(32)).pipe(
     Schema.withConstructorDefault(() => Option.some("")),
   ),
   cursorBinaryPath: Schema.String.check(Schema.isMaxLength(4096)).pipe(
@@ -69,6 +133,39 @@ export interface AppModelOption {
 
 export function resolveAppServiceTier(serviceTier: AppServiceTier): ProviderServiceTier | null {
   return serviceTier === "auto" ? null : serviceTier;
+}
+
+export function resolveAppClaudePermissionMode(
+  permissionMode: AppClaudePermissionMode,
+): string | undefined {
+  return permissionMode === "inherit" ? undefined : permissionMode;
+}
+
+export function resolveAppClaudeThinking(
+  thinkingMode: AppClaudeThinkingMode,
+): boolean | undefined {
+  switch (thinkingMode) {
+    case "on":
+      return true;
+    case "off":
+      return false;
+    default:
+      return undefined;
+  }
+}
+
+export function resolveAppClaudeMaxThinkingTokens(
+  value: string | null | undefined,
+): number | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  if (!/^\d+$/.test(trimmed)) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
 }
 
 export function shouldShowFastTierIcon(
@@ -121,6 +218,7 @@ export function normalizeCustomModelSlugs(
 function normalizeAppSettings(settings: AppSettings): AppSettings {
   return {
     ...settings,
+    claudeMaxThinkingTokens: settings.claudeMaxThinkingTokens.trim(),
     customCodexModels: normalizeCustomModelSlugs(settings.customCodexModels, "codex"),
     customClaudeModels: normalizeCustomModelSlugs(settings.customClaudeModels, "claudeCode"),
     customCursorModels: normalizeCustomModelSlugs(settings.customCursorModels, "cursor"),

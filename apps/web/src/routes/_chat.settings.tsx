@@ -6,6 +6,8 @@ import { getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
 import { ZapIcon } from "lucide-react";
 
 import {
+  APP_CLAUDE_PERMISSION_MODE_OPTIONS,
+  APP_CLAUDE_THINKING_MODE_OPTIONS,
   APP_SERVICE_TIER_OPTIONS,
   MAX_CUSTOM_MODEL_LENGTH,
   shouldShowFastTierIcon,
@@ -129,6 +131,9 @@ function SettingsRouteView() {
   const codexBinaryPath = settings.codexBinaryPath;
   const codexHomePath = settings.codexHomePath;
   const claudeBinaryPath = settings.claudeBinaryPath;
+  const claudePermissionMode = settings.claudePermissionMode;
+  const claudeThinkingMode = settings.claudeThinkingMode;
+  const claudeMaxThinkingTokens = settings.claudeMaxThinkingTokens;
   const cursorBinaryPath = settings.cursorBinaryPath;
   const codexServiceTier = settings.codexServiceTier;
   const keybindingsConfigPath = serverConfigQuery.data?.keybindingsConfigPath ?? null;
@@ -350,6 +355,90 @@ function SettingsRouteView() {
                   </span>
                 </label>
 
+                <label className="block space-y-1">
+                  <span className="text-xs font-medium text-foreground">
+                    Claude permission mode
+                  </span>
+                  <Select
+                    items={APP_CLAUDE_PERMISSION_MODE_OPTIONS.map((option) => ({
+                      label: option.label,
+                      value: option.value,
+                    }))}
+                    value={claudePermissionMode}
+                    onValueChange={(value) => {
+                      if (!value) return;
+                      updateSettings({ claudePermissionMode: value });
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectPopup alignItemWithTrigger={false}>
+                      {APP_CLAUDE_PERMISSION_MODE_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
+                  <span className="text-xs text-muted-foreground">
+                    {APP_CLAUDE_PERMISSION_MODE_OPTIONS.find(
+                      (option) => option.value === claudePermissionMode,
+                    )?.description ?? "Use T3 Code defaults based on the selected runtime mode."}
+                  </span>
+                </label>
+
+                <label className="block space-y-1">
+                  <span className="text-xs font-medium text-foreground">Claude thinking mode</span>
+                  <Select
+                    items={APP_CLAUDE_THINKING_MODE_OPTIONS.map((option) => ({
+                      label: option.label,
+                      value: option.value,
+                    }))}
+                    value={claudeThinkingMode}
+                    onValueChange={(value) => {
+                      if (!value) return;
+                      updateSettings({ claudeThinkingMode: value });
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectPopup alignItemWithTrigger={false}>
+                      {APP_CLAUDE_THINKING_MODE_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
+                  <span className="text-xs text-muted-foreground">
+                    {APP_CLAUDE_THINKING_MODE_OPTIONS.find(
+                      (option) => option.value === claudeThinkingMode,
+                    )?.description ?? "Use Claude Code defaults unless a session override is configured elsewhere."}
+                  </span>
+                </label>
+
+                <label htmlFor="claude-max-thinking-tokens" className="block space-y-1">
+                  <span className="text-xs font-medium text-foreground">
+                    Claude max thinking tokens
+                  </span>
+                  <Input
+                    id="claude-max-thinking-tokens"
+                    value={claudeMaxThinkingTokens}
+                    onChange={(event) =>
+                      updateSettings({ claudeMaxThinkingTokens: event.target.value })
+                    }
+                    placeholder="4096"
+                    inputMode="numeric"
+                    spellCheck={false}
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    Optional <code>MAX_THINKING_TOKENS</code> override for new Claude sessions.
+                    Leave blank to use Claude Code defaults.
+                  </span>
+                </label>
+
                 <label htmlFor="cursor-binary-path" className="block space-y-1">
                   <span className="text-xs font-medium text-foreground">Cursor binary path</span>
                   <Input
@@ -369,6 +458,12 @@ function SettingsRouteView() {
                     Claude:{" "}
                     <span className="font-medium text-foreground">{claudeBinaryPath || "PATH"}</span>
                     {" · "}
+                    Permission:{" "}
+                    <span className="font-medium text-foreground">{claudePermissionMode}</span>
+                    {" · "}
+                    Thinking:{" "}
+                    <span className="font-medium text-foreground">{claudeThinkingMode}</span>
+                    {" · "}
                     Cursor:{" "}
                     <span className="font-medium text-foreground">{cursorBinaryPath || "PATH"}</span>
                   </p>
@@ -378,6 +473,9 @@ function SettingsRouteView() {
                     onClick={() =>
                       updateSettings({
                         claudeBinaryPath: defaults.claudeBinaryPath,
+                        claudePermissionMode: defaults.claudePermissionMode,
+                        claudeThinkingMode: defaults.claudeThinkingMode,
+                        claudeMaxThinkingTokens: defaults.claudeMaxThinkingTokens,
                         cursorBinaryPath: defaults.cursorBinaryPath,
                       })
                     }

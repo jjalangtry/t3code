@@ -62,7 +62,9 @@ export function makeServerProviderLayer(): Layer.Layer<
     const claudeAdapterLayer = makeClaudeCodeAdapterLive(
       nativeEventLogger ? { nativeEventLogger } : undefined,
     );
-    const cursorAdapterLayer = makeCursorAdapterLive();
+    const cursorAdapterLayer = makeCursorAdapterLive(
+      nativeEventLogger ? { nativeEventLogger } : undefined,
+    );
     const adapterRegistryLayer = ProviderAdapterRegistryLive.pipe(
       Layer.provide(codexAdapterLayer),
       Layer.provide(claudeAdapterLayer),

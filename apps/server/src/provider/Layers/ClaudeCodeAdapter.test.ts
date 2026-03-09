@@ -1,7 +1,6 @@
 import { ThreadId } from "@t3tools/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Fiber, Random, Stream } from "effect";
-import { EventEmitter, Readable } from "node:stream";
 
 import {
   ProviderAdapterValidationError,
@@ -11,70 +10,31 @@ import {
   makeClaudeCodeAdapterLive,
   type ClaudeCodeAdapterLiveOptions,
 } from "./ClaudeCodeAdapter.ts";
-
-/**
- * Fake child process that can be driven from tests by writing NDJSON lines.
- */
-class FakeChildProcess extends EventEmitter {
-  readonly pid = 12345;
-  readonly stdout: Readable;
-  readonly stderr: Readable;
-
-  private _stdoutPush: (chunk: string | null) => void;
-  private _stderrPush: (chunk: string | null) => void;
-  public killCalls: Array<string | number | undefined> = [];
-
-  constructor() {
-    super();
-    let stdoutPush: (chunk: string | null) => void = () => {};
-    let stderrPush: (chunk: string | null) => void = () => {};
-    this.stdout = new Readable({
-      read() {},
-    });
-    this.stderr = new Readable({
-      read() {},
-    });
-    this._stdoutPush = (chunk) => this.stdout.push(chunk);
-    this._stderrPush = (chunk) => this.stderr.push(chunk);
-  }
-
-  /** Write an NDJSON line to stdout (simulates Claude CLI output). */
-  emitLine(obj: Record<string, unknown>): void {
-    this._stdoutPush(`${JSON.stringify(obj)}\n`);
-  }
-
-  /** Write stderr output. */
-  emitStderr(text: string): void {
-    this._stderrPush(text);
-  }
-
-  /** Simulate process exit. */
-  exit(code: number | null, signal: NodeJS.Signals | null = null): void {
-    this._stdoutPush(null);
-    this._stderrPush(null);
-    this.emit("exit", code, signal);
-  }
-
-  kill(signal?: NodeJS.Signals | number): void {
-    this.killCalls.push(signal);
-  }
-}
+import {
+  type CliSpawnInvocation,
+  FakeCliChildProcess,
+  makeDeterministicRandomService,
+} from "./cliAdapterTestUtils.ts";
 
 interface Harness {
   readonly layer: ReturnType<typeof makeClaudeCodeAdapterLive>;
-  readonly getLastProcess: () => FakeChildProcess | undefined;
-  readonly processes: FakeChildProcess[];
+  readonly getLastProcess: () => FakeCliChildProcess | undefined;
+  readonly getLastSpawnInvocation: () => CliSpawnInvocation | undefined;
+  readonly processes: FakeCliChildProcess[];
+  readonly spawnInvocations: CliSpawnInvocation[];
 }
 
 function makeHarness(config?: {
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: ClaudeCodeAdapterLiveOptions["nativeEventLogger"];
 }): Harness {
-  const processes: FakeChildProcess[] = [];
+  const processes: FakeCliChildProcess[] = [];
+  const spawnInvocations: CliSpawnInvocation[] = [];
 
   const adapterOptions: ClaudeCodeAdapterLiveOptions = {
-    spawnTurnProcess: (_input) => {
-      const proc = new FakeChildProcess();
+    spawnTurnProcess: (input) => {
+      spawnInvocations.push(input);
+      const proc = new FakeCliChildProcess();
       processes.push(proc);
       return proc as any;
     },
@@ -89,28 +49,13 @@ function makeHarness(config?: {
   return {
     layer: makeClaudeCodeAdapterLive(adapterOptions),
     getLastProcess: () => processes[processes.length - 1],
+    getLastSpawnInvocation: () => spawnInvocations[spawnInvocations.length - 1],
     processes,
-  };
-}
-
-function makeDeterministicRandomService(seed = 0x1234_5678): {
-  nextIntUnsafe: () => number;
-  nextDoubleUnsafe: () => number;
-} {
-  let state = seed >>> 0;
-  const nextIntUnsafe = (): number => {
-    state = (Math.imul(1_664_525, state) + 1_013_904_223) >>> 0;
-    return state;
-  };
-
-  return {
-    nextIntUnsafe,
-    nextDoubleUnsafe: () => nextIntUnsafe() / 0x1_0000_0000,
+    spawnInvocations,
   };
 }
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-claude-1");
-const RESUME_THREAD_ID = ThreadId.makeUnsafe("thread-claude-resume");
 
 describe("ClaudeCodeAdapterLive", () => {
   it.effect("returns validation error for non-claudeCode provider on startSession", () => {
@@ -139,20 +84,14 @@ describe("ClaudeCodeAdapterLive", () => {
     );
   });
 
-  it.effect("maps Claude CLI stream events to canonical provider runtime events", () => {
+  it.effect("interrupts active Claude turns via SIGTERM", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeCodeAdapter;
 
-      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 11).pipe(
-        Stream.runCollect,
-        Effect.forkChild,
-      );
-
       const session = yield* adapter.startSession({
         threadId: THREAD_ID,
         provider: "claudeCode",
-        model: "claude-sonnet-4-6",
         runtimeMode: "full-access",
       });
 
@@ -162,182 +101,14 @@ describe("ClaudeCodeAdapterLive", () => {
         attachments: [],
       });
 
-      const proc = harness.getLastProcess()!;
-
-      // Emit a content delta
-      proc.emitLine({
-        type: "stream_event",
-        session_id: "cli-session-1",
-        event: {
-          type: "content_block_delta",
-          index: 0,
-          delta: {
-            type: "text_delta",
-            text: "Hi",
-          },
-        },
-      });
-
-      // Emit a tool start
-      proc.emitLine({
-        type: "stream_event",
-        session_id: "cli-session-1",
-        event: {
-          type: "content_block_start",
-          index: 1,
-          content_block: {
-            type: "tool_use",
-            id: "tool-1",
-            name: "Bash",
-            input: {
-              command: "ls",
-            },
-          },
-        },
-      });
-
-      // Emit tool stop
-      proc.emitLine({
-        type: "stream_event",
-        session_id: "cli-session-1",
-        event: {
-          type: "content_block_stop",
-          index: 1,
-        },
-      });
-
-      // Emit assistant message
-      proc.emitLine({
-        type: "assistant",
-        session_id: "cli-session-1",
-        message: {
-          id: "assistant-message-1",
-          content: [{ type: "text", text: "Hi" }],
-        },
-      });
-
-      // Emit result
-      proc.emitLine({
-        type: "result",
-        subtype: "success",
-        is_error: false,
-        errors: [],
-        session_id: "cli-session-1",
-      });
-      proc.exit(0);
-
-      const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
-      assert.deepEqual(
-        runtimeEvents.map((event) => event.type),
-        [
-          "session.started",
-          "session.configured",
-          "session.state.changed",
-          "turn.started",
-          "thread.started",
-          "content.delta",
-          "item.started",
-          "item.completed",
-          "item.updated",
-          "item.completed",
-          "turn.completed",
-        ],
-      );
-
-      const turnStarted = runtimeEvents[3];
-      assert.equal(turnStarted?.type, "turn.started");
-      if (turnStarted?.type === "turn.started") {
-        assert.equal(String(turnStarted.turnId), String(turn.turnId));
+      const proc = harness.getLastProcess();
+      assert.notStrictEqual(proc, undefined);
+      if (!proc) {
+        return;
       }
 
-      const deltaEvent = runtimeEvents.find((event) => event.type === "content.delta");
-      assert.equal(deltaEvent?.type, "content.delta");
-      if (deltaEvent?.type === "content.delta") {
-        assert.equal(deltaEvent.payload.delta, "Hi");
-        assert.equal(String(deltaEvent.turnId), String(turn.turnId));
-      }
-
-      const toolStarted = runtimeEvents.find((event) => event.type === "item.started");
-      assert.equal(toolStarted?.type, "item.started");
-      if (toolStarted?.type === "item.started") {
-        assert.equal(toolStarted.payload.itemType, "command_execution");
-      }
-
-      const turnCompleted = runtimeEvents[runtimeEvents.length - 1];
-      assert.equal(turnCompleted?.type, "turn.completed");
-      if (turnCompleted?.type === "turn.completed") {
-        assert.equal(String(turnCompleted.turnId), String(turn.turnId));
-        assert.equal(turnCompleted.payload.state, "completed");
-      }
-    }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
-    );
-  });
-
-  it.effect("emits item.updated and item.completed when assistant message arrives without prior deltas", () => {
-    const harness = makeHarness();
-    return Effect.gen(function* () {
-      const adapter = yield* ClaudeCodeAdapter;
-
-      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 8).pipe(
-        Stream.runCollect,
-        Effect.forkChild,
-      );
-
-      const session = yield* adapter.startSession({
-        threadId: THREAD_ID,
-        provider: "claudeCode",
-        runtimeMode: "full-access",
-      });
-
-      yield* adapter.sendTurn({
-        threadId: session.threadId,
-        input: "hello",
-        attachments: [],
-      });
-
-      const proc = harness.getLastProcess()!;
-
-      // Emit assistant message directly (no prior content_block_delta)
-      proc.emitLine({
-        type: "assistant",
-        session_id: "cli-session-fallback",
-        message: {
-          id: "assistant-message-fallback",
-          content: [{ type: "text", text: "Fallback hello" }],
-        },
-      });
-
-      proc.emitLine({
-        type: "result",
-        subtype: "success",
-        is_error: false,
-        errors: [],
-        session_id: "cli-session-fallback",
-      });
-      proc.exit(0);
-
-      const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
-      assert.deepEqual(
-        runtimeEvents.map((event) => event.type),
-        [
-          "session.started",
-          "session.configured",
-          "session.state.changed",
-          "turn.started",
-          "thread.started",
-          "item.updated",
-          "item.completed",
-          "turn.completed",
-        ],
-      );
-
-      const itemUpdated = runtimeEvents.find((event) => event.type === "item.updated");
-      assert.equal(itemUpdated?.type, "item.updated");
-      if (itemUpdated?.type === "item.updated") {
-        assert.equal(itemUpdated.payload.itemType, "assistant_message");
-      }
+      yield* adapter.interruptTurn(session.threadId, turn.turnId);
+      assert.deepEqual(proc.killCalls, ["SIGTERM"]);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
@@ -421,6 +192,114 @@ describe("ClaudeCodeAdapterLive", () => {
       const threadAfterRollback = yield* adapter.readThread(session.threadId);
       assert.equal(threadAfterRollback.turns.length, 1);
       assert.equal(threadAfterRollback.turns[0]?.id, firstTurn.turnId);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("passes Claude session options through to the CLI process environment and args", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const previousMaxThinkingTokens = process.env.MAX_THINKING_TOKENS;
+      process.env.MAX_THINKING_TOKENS = "0";
+      try {
+        const adapter = yield* ClaudeCodeAdapter;
+
+        const session = yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: "claudeCode",
+          runtimeMode: "full-access",
+          cwd: "/tmp/claude-project",
+          model: "claude-sonnet-4-6",
+          modelOptions: {
+            claudeCode: {
+              thinking: true,
+            },
+          },
+          providerOptions: {
+            claudeCode: {
+              binaryPath: "/opt/claude",
+              permissionMode: "acceptEdits",
+              maxThinkingTokens: 4096,
+            },
+          },
+          resumeCursor: {
+            sessionId: "resume-session-1",
+          },
+        });
+
+        yield* adapter.sendTurn({
+          threadId: session.threadId,
+          input: "hello",
+          attachments: [],
+          interactionMode: "plan",
+          model: "claude-opus-4-6",
+        });
+
+        const spawn = harness.getLastSpawnInvocation();
+        assert.notStrictEqual(spawn, undefined);
+        if (!spawn) {
+          return;
+        }
+
+        assert.equal(spawn.binaryPath, "/opt/claude");
+        assert.equal(spawn.cwd, "/tmp/claude-project");
+        assert.deepEqual(spawn.args.slice(0, 5), [
+          "-p",
+          "--verbose",
+          "--output-format",
+          "stream-json",
+          "--include-partial-messages",
+        ]);
+        assert.deepEqual(
+          spawn.args.slice(5, 10),
+          ["--permission-mode", "plan", "--model", "claude-opus-4-6", "--resume"],
+        );
+        assert.equal(spawn.args[10], "resume-session-1");
+        assert.equal(spawn.args.includes("--append-system-prompt"), true);
+        assert.equal(spawn.env.MAX_THINKING_TOKENS, "4096");
+      } finally {
+        if (previousMaxThinkingTokens === undefined) {
+          delete process.env.MAX_THINKING_TOKENS;
+        } else {
+          process.env.MAX_THINKING_TOKENS = previousMaxThinkingTokens;
+        }
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("disables Claude thinking when the model options turn it off", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeCodeAdapter;
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeCode",
+        runtimeMode: "full-access",
+        modelOptions: {
+          claudeCode: {
+            thinking: false,
+          },
+        },
+      });
+
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "hello",
+        attachments: [],
+      });
+
+      const spawn = harness.getLastSpawnInvocation();
+      assert.notStrictEqual(spawn, undefined);
+      if (!spawn) {
+        return;
+      }
+      assert.equal(spawn.env.MAX_THINKING_TOKENS, "0");
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

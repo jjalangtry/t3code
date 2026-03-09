@@ -296,29 +296,18 @@ it("parseClaudeAuthStatusFromOutput: not authenticated text is unauthenticated",
   assert.strictEqual(parsed.authStatus, "unauthenticated");
 });
 
-it.effect("returns unavailable when cursor provider is disabled by feature flag", () =>
+it.effect("returns unavailable when cursor is missing", () =>
   Effect.gen(function* () {
-    const previous = process.env.T3CODE_ENABLE_CURSOR_PROVIDER;
-    process.env.T3CODE_ENABLE_CURSOR_PROVIDER = "0";
-    try {
-      const status = yield* checkCursorProviderStatus;
-      assert.strictEqual(status.provider, "cursor");
-      assert.strictEqual(status.available, false);
-      assert.strictEqual(status.status, "warning");
-    } finally {
-      if (previous === undefined) {
-        delete process.env.T3CODE_ENABLE_CURSOR_PROVIDER;
-      } else {
-        process.env.T3CODE_ENABLE_CURSOR_PROVIDER = previous;
-      }
-    }
-  }).pipe(
-    Effect.provide(
-      mockSpawnerLayer((args) => {
-        throw new Error(`Unexpected args: ${args.join(" ")}`);
-      }),
-    ),
-  ),
+    const status = yield* checkCursorProviderStatus;
+    assert.strictEqual(status.provider, "cursor");
+    assert.strictEqual(status.available, false);
+    assert.strictEqual(status.status, "error");
+    assert.strictEqual(status.authStatus, "unknown");
+    assert.strictEqual(
+      status.message,
+      "Cursor CLI (`cursor-agent`) is not installed or not on PATH.",
+    );
+  }).pipe(Effect.provide(failingSpawnerLayer("spawn cursor-agent ENOENT"))),
 );
 
 it("parseCursorAuthStatusFromOutput: exit code 0 with no auth markers is ready", () => {

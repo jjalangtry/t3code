@@ -31,7 +31,7 @@ const makeProviderAdapterRegistry = (options?: ProviderAdapterRegistryLiveOption
         : [
             yield* CodexAdapter,
             yield* ClaudeCodeAdapter,
-            ...(process.env.T3CODE_ENABLE_CURSOR_PROVIDER === "1" ? [yield* CursorAdapter] : []),
+            yield* CursorAdapter,
           ];
     const byProvider = new Map(adapters.map((adapter) => [adapter.provider, adapter]));
 
