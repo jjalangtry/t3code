@@ -10,8 +10,10 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import {
   DEFAULT_THREAD_TERMINAL_HEIGHT,
+  DEFAULT_THREAD_TERMINAL_WIDTH,
   DEFAULT_THREAD_TERMINAL_ID,
   MAX_THREAD_TERMINAL_COUNT,
+  type TerminalPosition,
   type ThreadTerminalGroup,
 } from "./types";
 
@@ -449,6 +451,10 @@ function updateTerminalStateByThreadId(
 
 interface TerminalStateStoreState {
   terminalStateByThreadId: Record<ThreadId, ThreadTerminalState>;
+  // Global preferences (shared across all threads)
+  terminalPosition: TerminalPosition;
+  terminalWidth: number;
+  terminalForceDark: boolean;
   setTerminalOpen: (threadId: ThreadId, open: boolean) => void;
   setTerminalHeight: (threadId: ThreadId, height: number) => void;
   splitTerminal: (threadId: ThreadId, terminalId: string) => void;
@@ -462,6 +468,9 @@ interface TerminalStateStoreState {
   ) => void;
   clearTerminalState: (threadId: ThreadId) => void;
   removeOrphanedTerminalStates: (activeThreadIds: Set<ThreadId>) => void;
+  setTerminalPosition: (position: TerminalPosition) => void;
+  setTerminalWidth: (width: number) => void;
+  setTerminalForceDark: (forceDark: boolean) => void;
 }
 
 export const useTerminalStateStore = create<TerminalStateStoreState>()(
@@ -488,6 +497,16 @@ export const useTerminalStateStore = create<TerminalStateStoreState>()(
 
       return {
         terminalStateByThreadId: {},
+        terminalPosition: "bottom" as TerminalPosition,
+        terminalWidth: DEFAULT_THREAD_TERMINAL_WIDTH,
+        terminalForceDark: false,
+        setTerminalPosition: (position) => set({ terminalPosition: position }),
+        setTerminalWidth: (width) =>
+          set({
+            terminalWidth:
+              Number.isFinite(width) && width > 0 ? width : DEFAULT_THREAD_TERMINAL_WIDTH,
+          }),
+        setTerminalForceDark: (forceDark) => set({ terminalForceDark: forceDark }),
         setTerminalOpen: (threadId, open) =>
           updateTerminal(threadId, (state) => setThreadTerminalOpen(state, open)),
         setTerminalHeight: (threadId, height) =>
@@ -526,6 +545,9 @@ export const useTerminalStateStore = create<TerminalStateStoreState>()(
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         terminalStateByThreadId: state.terminalStateByThreadId,
+        terminalPosition: state.terminalPosition,
+        terminalWidth: state.terminalWidth,
+        terminalForceDark: state.terminalForceDark,
       }),
     },
   ),

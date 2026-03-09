@@ -1,9 +1,16 @@
 import {
+  ArrowLeftIcon,
   ChevronRightIcon,
   FolderIcon,
   GitPullRequestIcon,
+  MoonIcon,
+  PanelBottomIcon,
+  PanelRightIcon,
+  PlusIcon,
   RocketIcon,
+  SettingsIcon,
   SquarePenIcon,
+  SunIcon,
   TerminalIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -11,17 +18,26 @@ import {
   DEFAULT_RUNTIME_MODE,
   DEFAULT_MODEL_BY_PROVIDER,
   type DesktopUpdateState,
+  type ProjectEntry,
   ProjectId,
   ThreadId,
   type GitStatusResult,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { useAppSettings } from "../appSettings";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL } from "../branding";
-import { newCommandId, newProjectId, newThreadId } from "../lib/utils";
+import { projectSearchEntriesQueryOptions } from "../lib/projectReactQuery";
+import { cn, newCommandId, newProjectId, newThreadId } from "../lib/utils";
+import {
+  basenameOfProjectPath,
+  deriveAddProjectSearchInput,
+  dirnameOfProjectPath,
+  normalizeAddProjectPathInput,
+  resolveProjectSearchPath,
+} from "../lib/addProjectPath";
 import { useStore } from "../store";
 import { isChatNewLocalShortcut, isChatNewShortcut, shortcutLabelForCommand } from "../keybindings";
 import { type Thread } from "../types";
@@ -31,6 +47,7 @@ import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { readNativeApi } from "../nativeApi";
 import { type DraftThreadEnvMode, useComposerDraftStore } from "../composerDraftStore";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
+import { useTheme } from "../hooks/useTheme";
 import { toastManager } from "./ui/toast";
 import {
   getDesktopUpdateActionError,
@@ -62,7 +79,9 @@ import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "
 import { isNonEmpty as isNonEmptyString } from "effect/String";
 
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
+const EMPTY_PROJECT_ENTRIES: readonly ProjectEntry[] = [];
 const THREAD_PREVIEW_LIMIT = 6;
+const ADD_PROJECT_SUGGESTION_LIMIT = 10;
 
 async function copyTextToClipboard(text: string): Promise<void> {
   if (typeof navigator === "undefined" || navigator.clipboard?.writeText === undefined) {
@@ -99,6 +118,12 @@ interface PrStatusIndicator {
   colorClass: string;
   tooltip: string;
   url: string;
+}
+
+interface AddProjectSuggestion {
+  fullPath: string;
+  label: string;
+  breadcrumb: string;
 }
 
 type ThreadPr = GitStatusResult["pr"];
@@ -197,19 +222,15 @@ function prStatusIndicator(pr: ThreadPr): PrStatusIndicator | null {
   return null;
 }
 
-function T3Wordmark() {
+function JjalangtryBrandMark() {
   return (
-    <svg
-      aria-label="T3"
-      className="h-2.5 w-auto shrink-0 text-foreground"
-      viewBox="15.5309 37 94.3941 56.96"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M33.4509 93V47.56H15.5309V37H64.3309V47.56H46.4109V93H33.4509ZM86.7253 93.96C82.832 93.96 78.9653 93.4533 75.1253 92.44C71.2853 91.3733 68.032 89.88 65.3653 87.96L70.4053 78.04C72.5386 79.5867 75.0186 80.8133 77.8453 81.72C80.672 82.6267 83.5253 83.08 86.4053 83.08C89.6586 83.08 92.2186 82.44 94.0853 81.16C95.952 79.88 96.8853 78.12 96.8853 75.88C96.8853 73.7467 96.0586 72.0667 94.4053 70.84C92.752 69.6133 90.0853 69 86.4053 69H80.4853V60.44L96.0853 42.76L97.5253 47.4H68.1653V37H107.365V45.4L91.8453 63.08L85.2853 59.32H89.0453C95.9253 59.32 101.125 60.8667 104.645 63.96C108.165 67.0533 109.925 71.0267 109.925 75.88C109.925 79.0267 109.099 81.9867 107.445 84.76C105.792 87.48 103.259 89.6933 99.8453 91.4C96.432 93.1067 92.0586 93.96 86.7253 93.96Z"
-        fill="currentColor"
-      />
-    </svg>
+    <img
+      alt="jjalangtry"
+      className="size-7 shrink-0 rounded-[0.95rem] border border-border/60 object-cover shadow-sm"
+      height={28}
+      src="/jakob-icon.png"
+      width={28}
+    />
   );
 }
 
@@ -225,7 +246,7 @@ function getServerHttpOrigin(): string {
       ? bridgeUrl
       : envUrl && envUrl.length > 0
         ? envUrl
-        : `ws://${window.location.hostname}:${window.location.port}`;
+        : `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.hostname}:${window.location.port}`;
   // Parse to extract just the origin, dropping path/query (e.g. ?token=…)
   const httpUrl = wsUrl.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
   try {
@@ -269,6 +290,8 @@ export default function Sidebar() {
   const getDraftThread = useComposerDraftStore((store) => store.getDraftThread);
   const terminalStateByThreadId = useTerminalStateStore((state) => state.terminalStateByThreadId);
   const clearTerminalState = useTerminalStateStore((state) => state.clearTerminalState);
+  const terminalPosition = useTerminalStateStore((state) => state.terminalPosition);
+  const setTerminalPosition = useTerminalStateStore((state) => state.setTerminalPosition);
   const setProjectDraftThreadId = useComposerDraftStore((store) => store.setProjectDraftThreadId);
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const clearProjectDraftThreadId = useComposerDraftStore(
@@ -278,7 +301,9 @@ export default function Sidebar() {
     (store) => store.clearProjectDraftThreadById,
   );
   const navigate = useNavigate();
+  const isOnSettings = useLocation({ select: (loc) => loc.pathname === "/settings" });
   const { settings: appSettings } = useAppSettings();
+  const { resolvedTheme, setTheme } = useTheme();
   const routeThreadId = useParams({
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
@@ -293,6 +318,10 @@ export default function Sidebar() {
   const [newCwd, setNewCwd] = useState("");
   const [isPickingFolder, setIsPickingFolder] = useState(false);
   const [isAddingProject, setIsAddingProject] = useState(false);
+  const [highlightedAddProjectSuggestionIndex, setHighlightedAddProjectSuggestionIndex] =
+    useState(0);
+  const [addProjectError, setAddProjectError] = useState<string | null>(null);
+  const addProjectInputRef = useRef<HTMLInputElement | null>(null);
   const [renamingThreadId, setRenamingThreadId] = useState<ThreadId | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
   const [expandedThreadListsByProject, setExpandedThreadListsByProject] = useState<
@@ -301,6 +330,41 @@ export default function Sidebar() {
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
+  const addProjectSearchInput = useMemo(() => deriveAddProjectSearchInput(newCwd), [newCwd]);
+  const addProjectSearchEntriesQuery = useQuery(
+    projectSearchEntriesQueryOptions({
+      cwd: addProjectSearchInput.cwd,
+      query: addProjectSearchInput.query,
+      enabled: addingProject,
+      limit: 20,
+      staleTime: 10_000,
+    }),
+  );
+  const addProjectSuggestions = useMemo<ReadonlyArray<AddProjectSuggestion>>(() => {
+    const seenPaths = new Set<string>();
+    const entries = addProjectSearchEntriesQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES;
+
+    return entries
+      .filter((entry) => entry.kind === "directory")
+      .map((entry) => resolveProjectSearchPath(addProjectSearchInput.cwd ?? "/", entry.path))
+      .filter((fullPath) => {
+        if (seenPaths.has(fullPath)) return false;
+        seenPaths.add(fullPath);
+        return true;
+      })
+      .map((fullPath) => {
+        const label = basenameOfProjectPath(fullPath);
+        const breadcrumb = dirnameOfProjectPath(fullPath);
+        return {
+          fullPath,
+          label,
+          breadcrumb,
+        };
+      })
+      .slice(0, ADD_PROJECT_SUGGESTION_LIMIT);
+  }, [addProjectSearchEntriesQuery.data?.entries, addProjectSearchInput.cwd]);
+  const highlightedAddProjectSuggestion =
+    addProjectSuggestions[highlightedAddProjectSuggestionIndex] ?? null;
   const pendingApprovalByThreadId = useMemo(() => {
     const map = new Map<ThreadId, boolean>();
     for (const thread of threads) {
@@ -311,6 +375,10 @@ export default function Sidebar() {
   const projectCwdById = useMemo(
     () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
     [projects],
+  );
+  const activeTerminalState = useMemo(
+    () => (routeThreadId ? selectThreadTerminalState(terminalStateByThreadId, routeThreadId) : null),
+    [routeThreadId, terminalStateByThreadId],
   );
   const threadGitTargets = useMemo(
     () =>
@@ -380,6 +448,13 @@ export default function Sidebar() {
         description: error instanceof Error ? error.message : "An error occurred.",
       });
     });
+  }, []);
+
+  const closeAddProject = useCallback(() => {
+    setAddingProject(false);
+    setNewCwd("");
+    setAddProjectError(null);
+    setHighlightedAddProjectSuggestionIndex(0);
   }, []);
 
   const handleNewThread = useCallback(
@@ -477,7 +552,7 @@ export default function Sidebar() {
 
   const addProjectFromPath = useCallback(
     async (rawCwd: string) => {
-      const cwd = rawCwd.trim();
+      const cwd = normalizeAddProjectPathInput(rawCwd);
       if (!cwd || isAddingProject) return;
       const api = readNativeApi();
       if (!api) return;
@@ -485,8 +560,7 @@ export default function Sidebar() {
       setIsAddingProject(true);
       const finishAddingProject = () => {
         setIsAddingProject(false);
-        setNewCwd("");
-        setAddingProject(false);
+        closeAddProject();
       };
 
       const existing = projects.find((project) => project.cwd === cwd);
@@ -512,17 +586,14 @@ export default function Sidebar() {
         await handleNewThread(projectId).catch(() => undefined);
       } catch (error) {
         setIsAddingProject(false);
-        toastManager.add({
-          type: "error",
-          title: "Unable to add project",
-          description:
-            error instanceof Error ? error.message : "An error occurred while adding the project.",
-        });
+        setAddProjectError(
+          error instanceof Error ? error.message : "An error occurred while adding the project.",
+        );
         return;
       }
       finishAddingProject();
     },
-    [focusMostRecentThreadForProject, handleNewThread, isAddingProject, projects],
+    [closeAddProject, focusMostRecentThreadForProject, handleNewThread, isAddingProject, projects],
   );
 
   const handleAddProject = () => {
@@ -541,9 +612,25 @@ export default function Sidebar() {
     }
     if (pickedPath) {
       await addProjectFromPath(pickedPath);
+    } else {
+      addProjectInputRef.current?.focus();
     }
     setIsPickingFolder(false);
   };
+
+  useEffect(() => {
+    if (!addingProject) return;
+    addProjectInputRef.current?.focus();
+  }, [addingProject]);
+
+  useEffect(() => {
+    setHighlightedAddProjectSuggestionIndex(0);
+  }, [newCwd]);
+
+  useEffect(() => {
+    if (highlightedAddProjectSuggestionIndex < addProjectSuggestions.length) return;
+    setHighlightedAddProjectSuggestionIndex(Math.max(addProjectSuggestions.length - 1, 0));
+  }, [addProjectSuggestions.length, highlightedAddProjectSuggestionIndex]);
 
   const cancelRename = useCallback(() => {
     setRenamingThreadId(null);
@@ -957,6 +1044,17 @@ export default function Sidebar() {
     }
   }, [desktopUpdateButtonAction, desktopUpdateButtonDisabled, desktopUpdateState]);
 
+  const toggleTheme = useCallback(() => {
+    setTheme(resolvedTheme === "dark" ? "light" : "dark");
+  }, [resolvedTheme, setTheme]);
+
+  const themeToggleTooltip =
+    resolvedTheme === "dark" ? "Switch app to light mode" : "Switch app to dark mode";
+  const terminalPositionTooltip =
+    terminalPosition === "right"
+      ? "Move terminal to bottom"
+      : "Move terminal to right sidebar";
+
   const expandThreadListForProject = useCallback((projectId: ProjectId) => {
     setExpandedThreadListsByProject((current) => {
       if (current.has(projectId)) return current;
@@ -978,10 +1076,10 @@ export default function Sidebar() {
   const wordmark = (
     <div className="flex items-center gap-2">
       <SidebarTrigger className="shrink-0 md:hidden" />
-      <div className="flex min-w-0 flex-1 items-center gap-1 mt-2 ml-1">
-        <T3Wordmark />
-        <span className="truncate text-sm font-medium tracking-tight text-muted-foreground">
-          Code
+      <div className="mt-2 ml-1 flex min-w-0 flex-1 items-center gap-2">
+        <JjalangtryBrandMark />
+        <span className="truncate text-sm font-semibold tracking-tight text-foreground">
+          jjalangtry
         </span>
         <span className="rounded-full bg-muted/50 px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-[0.18em] text-muted-foreground/60">
           {APP_STAGE_LABEL}
@@ -990,41 +1088,260 @@ export default function Sidebar() {
     </div>
   );
 
+  const headerActions = (
+    <div className="ml-auto flex items-center gap-1">
+      {activeTerminalState?.terminalOpen && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label={terminalPositionTooltip}
+                className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                onClick={() => {
+                  setTerminalPosition(terminalPosition === "right" ? "bottom" : "right");
+                }}
+              >
+                {terminalPosition === "right" ? (
+                  <PanelBottomIcon className="size-3.5" />
+                ) : (
+                  <PanelRightIcon className="size-3.5" />
+                )}
+              </button>
+            }
+          />
+          <TooltipPopup side="bottom">{terminalPositionTooltip}</TooltipPopup>
+        </Tooltip>
+      )}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              aria-label={themeToggleTooltip}
+              className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              onClick={toggleTheme}
+            >
+              {resolvedTheme === "dark" ? (
+                <SunIcon className="size-3.5" />
+              ) : (
+                <MoonIcon className="size-3.5" />
+              )}
+            </button>
+          }
+        />
+        <TooltipPopup side="bottom">{themeToggleTooltip}</TooltipPopup>
+      </Tooltip>
+      {showDesktopUpdateButton && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label={desktopUpdateTooltip}
+                aria-disabled={desktopUpdateButtonDisabled || undefined}
+                disabled={desktopUpdateButtonDisabled}
+                className={`inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors ${desktopUpdateButtonInteractivityClasses} ${desktopUpdateButtonClasses}`}
+                onClick={handleDesktopUpdateButtonClick}
+              >
+                <RocketIcon className="size-3.5" />
+              </button>
+            }
+          />
+          <TooltipPopup side="bottom">{desktopUpdateTooltip}</TooltipPopup>
+        </Tooltip>
+      )}
+    </div>
+  );
+
   return (
     <>
       {isElectron ? (
         <>
-          <SidebarHeader className="drag-region h-[52px] flex-row items-center gap-2 px-4 py-0 pl-[82px]">
+          <SidebarHeader className="drag-region h-[52px] flex-row items-center gap-2 px-4 py-0 pl-[90px]">
             {wordmark}
-            {showDesktopUpdateButton && (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <button
-                      type="button"
-                      aria-label={desktopUpdateTooltip}
-                      aria-disabled={desktopUpdateButtonDisabled || undefined}
-                      disabled={desktopUpdateButtonDisabled}
-                      className={`inline-flex size-7 ml-auto mt-2 items-center justify-center rounded-md text-muted-foreground transition-colors ${desktopUpdateButtonInteractivityClasses} ${desktopUpdateButtonClasses}`}
-                      onClick={handleDesktopUpdateButtonClick}
-                    >
-                      <RocketIcon className="size-3.5" />
-                    </button>
-                  }
-                />
-                <TooltipPopup side="bottom">{desktopUpdateTooltip}</TooltipPopup>
-              </Tooltip>
-            )}
+            {headerActions}
           </SidebarHeader>
         </>
       ) : (
-        <SidebarHeader className="gap-3 px-3 py-2 sm:gap-2.5 sm:px-4 sm:py-3">
+        <SidebarHeader className="flex-row items-center gap-3 px-3 py-2 sm:gap-2.5 sm:px-4 sm:py-3">
           {wordmark}
+          {headerActions}
         </SidebarHeader>
       )}
 
       <SidebarContent className="gap-0">
         <SidebarGroup className="px-2 py-2">
+          <div className="mb-1 flex items-center justify-between px-2">
+            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+              Projects
+            </span>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label="Add project"
+                    className="inline-flex size-5 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
+                    onClick={() => {
+                      setAddingProject((prev) => !prev);
+                      setAddProjectError(null);
+                    }}
+                  />
+                }
+              >
+                <PlusIcon className="size-3.5" />
+              </TooltipTrigger>
+              <TooltipPopup side="right">Add project</TooltipPopup>
+            </Tooltip>
+          </div>
+
+          {addingProject && (
+            <div className="mb-2 px-1">
+              {isElectron && (
+                <button
+                  type="button"
+                  className="mb-1.5 flex w-full items-center justify-center gap-2 rounded-md border border-border bg-secondary py-1.5 text-xs text-foreground/80 transition-colors duration-150 hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={() => void handlePickFolder()}
+                  disabled={isPickingFolder || isAddingProject}
+                >
+                  <FolderIcon className="size-3.5" />
+                  {isPickingFolder ? "Picking folder..." : "Browse for folder"}
+                </button>
+              )}
+              <div className="flex gap-1.5">
+                <input
+                  ref={addProjectInputRef}
+                  className={`min-w-0 flex-1 rounded-md border bg-secondary px-2 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none ${
+                    addProjectError
+                      ? "border-red-500/70 focus:border-red-500"
+                      : "border-border focus:border-ring"
+                  }`}
+                  placeholder="/path/to/project"
+                  value={newCwd}
+                  onChange={(event) => {
+                    setNewCwd(event.target.value);
+                    setAddProjectError(null);
+                    setHighlightedAddProjectSuggestionIndex(0);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "ArrowDown") {
+                      if (addProjectSuggestions.length === 0) return;
+                      event.preventDefault();
+                      setHighlightedAddProjectSuggestionIndex(
+                        (index) => (index + 1) % addProjectSuggestions.length,
+                      );
+                      return;
+                    }
+                    if (event.key === "ArrowUp") {
+                      if (addProjectSuggestions.length === 0) return;
+                      event.preventDefault();
+                      setHighlightedAddProjectSuggestionIndex(
+                        (index) =>
+                          (index - 1 + addProjectSuggestions.length) % addProjectSuggestions.length,
+                      );
+                      return;
+                    }
+                    if (event.key === "Tab") {
+                      if (!highlightedAddProjectSuggestion) return;
+                      event.preventDefault();
+                      setNewCwd(highlightedAddProjectSuggestion.fullPath);
+                      return;
+                    }
+                    if (event.key === "Enter") {
+                      if (
+                        highlightedAddProjectSuggestion &&
+                        normalizeAddProjectPathInput(newCwd) !== highlightedAddProjectSuggestion.fullPath
+                      ) {
+                        event.preventDefault();
+                        setNewCwd(highlightedAddProjectSuggestion.fullPath);
+                        return;
+                      }
+                      handleAddProject();
+                    }
+                    if (event.key === "Escape") {
+                      closeAddProject();
+                    }
+                  }}
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors duration-150 hover:bg-primary/90 disabled:opacity-60"
+                  onClick={handleAddProject}
+                  disabled={isAddingProject}
+                >
+                  {isAddingProject ? "Adding..." : "Add"}
+                </button>
+              </div>
+              {addProjectError && (
+                <p className="mt-1 px-0.5 text-[11px] leading-tight text-red-400">
+                  {addProjectError}
+                </p>
+              )}
+              {addProjectSuggestions.length > 0 && (
+                <div className="mt-1.5 rounded-md border border-border bg-background/70 p-1">
+                  <div className="px-2 pb-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/50">
+                    Searching in {addProjectSearchInput.cwd ?? "/"}
+                  </div>
+                  {addProjectSuggestions.map((suggestion, index) => {
+                    const isHighlighted = index === highlightedAddProjectSuggestionIndex;
+                    return (
+                      <button
+                        key={suggestion.fullPath}
+                        type="button"
+                        className={cn(
+                          "flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors duration-150",
+                          isHighlighted
+                            ? "bg-accent text-foreground"
+                            : "text-muted-foreground hover:bg-accent/70 hover:text-foreground",
+                        )}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => {
+                          setNewCwd(suggestion.fullPath);
+                          addProjectInputRef.current?.focus();
+                        }}
+                      >
+                        <FolderIcon className="mt-0.5 size-3.5 shrink-0" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-mono text-foreground">
+                            {suggestion.label}
+                          </span>
+                          <span className="block truncate font-mono text-[10px] text-muted-foreground/70">
+                            {suggestion.breadcrumb}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {addProjectSearchEntriesQuery.data?.truncated && (
+                    <p className="px-2 pt-1 text-[10px] text-muted-foreground/60">
+                      Narrow the path to show more matches.
+                    </p>
+                  )}
+                </div>
+              )}
+              {newCwd.trim().length > 0 &&
+                addProjectSearchInput.query.length > 0 &&
+                addProjectSuggestions.length === 0 && (
+                  <div className="mt-1.5 rounded-md border border-dashed border-border px-2 py-1.5 text-[10px] text-muted-foreground/60">
+                    {addProjectSearchEntriesQuery.isFetching
+                      ? "Searching directories..."
+                      : "No matching directories."}
+                  </div>
+                )}
+              <div className="mt-1.5 px-0.5">
+                <button
+                  type="button"
+                  className="text-[11px] text-muted-foreground/50 transition-colors hover:text-muted-foreground"
+                  onClick={closeAddProject}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
           <SidebarMenu>
             {projects.map((project) => {
               const projectThreads = threads
@@ -1288,68 +1605,37 @@ export default function Sidebar() {
 
           {projects.length === 0 && !addingProject && (
             <div className="px-2 pt-4 text-center text-xs text-muted-foreground/60">
-              No projects yet.
-              <br />
-              Add one to get started.
+              No projects yet
             </div>
           )}
         </SidebarGroup>
       </SidebarContent>
 
       <SidebarSeparator />
-      <SidebarFooter className="gap-0 p-3">
-        {addingProject ? (
-          <>
-            <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
-              Add project
-            </p>
-            <input
-              className="mb-2 w-full rounded-md border border-border bg-secondary px-2 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-ring focus:outline-none"
-              placeholder="/path/to/project"
-              value={newCwd}
-              onChange={(event) => setNewCwd(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") handleAddProject();
-                if (event.key === "Escape") setAddingProject(false);
-              }}
-            />
-            {isElectron && (
-              <button
-                type="button"
-                className="mb-2 flex w-full items-center justify-center rounded-md border border-border px-2 py-1.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
-                onClick={() => void handlePickFolder()}
-                disabled={isPickingFolder || isAddingProject}
+      <SidebarFooter className="p-2">
+        <SidebarMenu>
+          <SidebarMenuItem>
+            {isOnSettings ? (
+              <SidebarMenuButton
+                size="sm"
+                className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+                onClick={() => window.history.back()}
               >
-                {isPickingFolder ? "Picking folder..." : "Browse for folder"}
-              </button>
+                <ArrowLeftIcon className="size-3.5" />
+                <span className="text-xs">Back</span>
+              </SidebarMenuButton>
+            ) : (
+              <SidebarMenuButton
+                size="sm"
+                className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+                onClick={() => void navigate({ to: "/settings" })}
+              >
+                <SettingsIcon className="size-3.5" />
+                <span className="text-xs">Settings</span>
+              </SidebarMenuButton>
             )}
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className="flex-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground transition-colors duration-150 hover:bg-primary/90"
-                onClick={handleAddProject}
-                disabled={isAddingProject}
-              >
-                {isAddingProject ? "Adding..." : "Add"}
-              </button>
-              <button
-                type="button"
-                className="flex-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground/80 transition-colors duration-150 hover:bg-secondary"
-                onClick={() => setAddingProject(false)}
-              >
-                Cancel
-              </button>
-            </div>
-          </>
-        ) : (
-          <button
-            type="button"
-            className="flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-border py-2 text-xs text-muted-foreground/70 transition-colors duration-150 hover:border-ring hover:text-muted-foreground"
-            onClick={() => setAddingProject(true)}
-          >
-            + Add project
-          </button>
-        )}
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarFooter>
     </>
   );

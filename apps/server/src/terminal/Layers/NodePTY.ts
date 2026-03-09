@@ -5,22 +5,34 @@ import { PtyAdapter, PtyAdapterShape, PtyExitEvent, PtyProcess } from "../Servic
 
 let didEnsureSpawnHelperExecutable = false;
 
+export function resolveElectronUnpackedPath(filePath: string): string {
+  return filePath.includes("app.asar/")
+    ? filePath.replace("app.asar/", "app.asar.unpacked/")
+    : filePath;
+}
+
 const resolveNodePtySpawnHelperPath = Effect.gen(function* () {
   const requireForNodePty = createRequire(import.meta.url);
   const path = yield* Path.Path;
   const fs = yield* FileSystem.FileSystem;
 
   const packageJsonPath = requireForNodePty.resolve("node-pty/package.json");
-  const packageDir = path.dirname(packageJsonPath);
-  const candidates = [
-    path.join(packageDir, "build", "Release", "spawn-helper"),
-    path.join(packageDir, "build", "Debug", "spawn-helper"),
-    path.join(packageDir, "prebuilds", `${process.platform}-${process.arch}`, "spawn-helper"),
-  ];
+  const packageDirs = [
+    path.dirname(resolveElectronUnpackedPath(packageJsonPath)),
+    path.dirname(packageJsonPath),
+  ].filter((candidate, index, allCandidates) => allCandidates.indexOf(candidate) === index);
 
-  for (const candidate of candidates) {
-    if (yield* fs.exists(candidate)) {
-      return candidate;
+  for (const packageDir of packageDirs) {
+    const candidates = [
+      path.join(packageDir, "build", "Release", "spawn-helper"),
+      path.join(packageDir, "build", "Debug", "spawn-helper"),
+      path.join(packageDir, "prebuilds", `${process.platform}-${process.arch}`, "spawn-helper"),
+    ];
+
+    for (const candidate of candidates) {
+      if (yield* fs.exists(candidate)) {
+        return candidate;
+      }
     }
   }
   return null;
