@@ -517,7 +517,7 @@ export const checkClaudeCodeProviderStatus: Effect.Effect<
 const runCursorCommand = (args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const command = ChildProcess.make("cursor-agent", [...args], {
+    const command = ChildProcess.make("agent", [...args], {
       shell: process.platform === "win32",
     });
 
@@ -559,13 +559,13 @@ export function parseCursorAuthStatusFromOutput(result: CommandResult): {
     lowerOutput.includes("login required") ||
     lowerOutput.includes("authentication required") ||
     lowerOutput.includes("not authenticated") ||
-    lowerOutput.includes("run `cursor-agent login`") ||
-    lowerOutput.includes("run cursor-agent login")
+    lowerOutput.includes("run `agent login`") ||
+    lowerOutput.includes("run agent login")
   ) {
     return {
       status: "error",
       authStatus: "unauthenticated",
-      message: "Cursor CLI is not authenticated. Run `cursor-agent login` and try again.",
+      message: "Cursor CLI is not authenticated. Run `agent login` and try again.",
     };
   }
 
@@ -591,7 +591,7 @@ export function parseCursorAuthStatusFromOutput(result: CommandResult): {
     return {
       status: "error",
       authStatus: "unauthenticated",
-      message: "Cursor CLI is not authenticated. Run `cursor-agent login` and try again.",
+      message: "Cursor CLI is not authenticated. Run `agent login` and try again.",
     };
   }
   if (parsedAuth.attemptedJsonParse) {
@@ -635,8 +635,8 @@ export const checkCursorProviderStatus: Effect.Effect<
       available: false,
       authStatus: "unknown" as const,
       checkedAt,
-      message: isCommandMissingCause(error, "cursor-agent")
-        ? "Cursor CLI (`cursor-agent`) is not installed or not on PATH."
+      message: isCommandMissingCause(error, "agent")
+        ? "Cursor CLI (`agent`) is not installed or not on PATH."
         : `Failed to execute Cursor CLI health check: ${error instanceof Error ? error.message : String(error)}.`,
     };
   }

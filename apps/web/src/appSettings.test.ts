@@ -43,8 +43,25 @@ describe("getAppModelOptions", () => {
 
   it("supports cursor built-in and custom model options", () => {
     const options = getAppModelOptions("cursor", ["cursor/custom-model"]);
+    const slugs = options.map((option) => option.slug);
 
-    expect(options.map((option) => option.slug)).toEqual(["auto", "cursor/custom-model"]);
+    expect(slugs[0]).toBe("auto");
+    expect(slugs).toEqual(
+      expect.arrayContaining([
+        "composer-1.5",
+        "gpt-5.4-medium",
+        "gpt-5.3-codex",
+        "gpt-5.2-codex",
+        "sonnet-4.6",
+        "sonnet-4.6-thinking",
+        "opus-4.6",
+        "gemini-3.1-pro",
+        "grok",
+        "kimi-k2.5",
+        "cursor/custom-model",
+      ]),
+    );
+    expect(slugs.at(-1)).toBe("cursor/custom-model");
   });
 
   it("keeps the currently selected custom model available even if it is no longer saved", () => {

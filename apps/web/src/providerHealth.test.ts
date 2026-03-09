@@ -13,7 +13,7 @@ describe("providerHealth", () => {
         available: false,
         authStatus: "unknown" as const,
         checkedAt: "2026-03-09T00:00:00.000Z",
-        message: "Cursor CLI (`cursor-agent`) is not installed or not on PATH.",
+        message: "Cursor CLI (`agent`) is not installed or not on PATH.",
       },
     ];
 
@@ -33,7 +33,7 @@ describe("providerHealth", () => {
         available: false,
         authStatus: "unknown" as const,
         checkedAt: "2026-03-09T00:00:00.000Z",
-        message: "Cursor CLI (`cursor-agent`) is not installed or not on PATH.",
+        message: "Cursor CLI (`agent`) is not installed or not on PATH.",
       },
     ];
 

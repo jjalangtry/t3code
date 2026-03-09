@@ -305,9 +305,9 @@ it.effect("returns unavailable when cursor is missing", () =>
     assert.strictEqual(status.authStatus, "unknown");
     assert.strictEqual(
       status.message,
-      "Cursor CLI (`cursor-agent`) is not installed or not on PATH.",
+      "Cursor CLI (`agent`) is not installed or not on PATH.",
     );
-  }).pipe(Effect.provide(failingSpawnerLayer("spawn cursor-agent ENOENT"))),
+  }).pipe(Effect.provide(failingSpawnerLayer("spawn agent ENOENT"))),
 );
 
 it("parseCursorAuthStatusFromOutput: exit code 0 with no auth markers is ready", () => {

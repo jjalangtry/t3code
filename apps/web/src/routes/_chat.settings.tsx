@@ -445,7 +445,7 @@ function SettingsRouteView() {
                     id="cursor-binary-path"
                     value={cursorBinaryPath}
                     onChange={(event) => updateSettings({ cursorBinaryPath: event.target.value })}
-                    placeholder="cursor-agent"
+                    placeholder="agent"
                     spellCheck={false}
                   />
                   <span className="text-xs text-muted-foreground">

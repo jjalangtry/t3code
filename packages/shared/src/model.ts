@@ -37,7 +37,11 @@ export function normalizeModelSlug(
     return null;
   }
 
-  return MODEL_SLUG_ALIASES_BY_PROVIDER[provider][trimmed] ?? (trimmed as ModelSlug);
+  const aliases = MODEL_SLUG_ALIASES_BY_PROVIDER[provider];
+  if (Object.hasOwn(aliases, trimmed)) {
+    return aliases[trimmed] ?? (trimmed as ModelSlug);
+  }
+  return trimmed as ModelSlug;
 }
 
 export function resolveModelSlug(

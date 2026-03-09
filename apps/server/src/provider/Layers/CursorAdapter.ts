@@ -1,7 +1,7 @@
 /**
  * CursorAdapterLive - Cursor CLI-backed provider adapter.
  *
- * Executes Cursor turns through `cursor-agent --print --output-format stream-json`
+ * Executes Cursor turns through `agent --print --output-format stream-json`
  * and projects the streamed CLI events into canonical provider runtime events.
  *
  * This implementation mirrors the Claude CLI adapter pattern: per-turn subprocess,
@@ -855,7 +855,7 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
 
         const context: CursorSessionContext = {
           session,
-          binaryPath: providerOptions?.binaryPath ?? "cursor-agent",
+          binaryPath: providerOptions?.binaryPath ?? "agent",
           turns: [],
           turnState: undefined,
           providerThreadId: resumeState.resume,
