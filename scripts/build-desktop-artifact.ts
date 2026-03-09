@@ -601,6 +601,8 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       ChildProcess.make({
         cwd: repoRoot,
         ...commandOutputOptions(options.verbose),
+        // Windows needs shell mode to resolve .cmd shims (e.g. bun.cmd).
+        shell: process.platform === "win32",
       })`bun run build:desktop`,
     );
   }
@@ -657,7 +659,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
 
   const stagePackageJsonString = yield* encodeJsonString(stagePackageJson);
   yield* fs.writeFileString(path.join(stageAppDir, "package.json"), `${stagePackageJsonString}\n`);
-
   const buildEnv: NodeJS.ProcessEnv = {
     ...process.env,
   };
@@ -711,6 +712,8 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       cwd: stageAppDir,
       env: buildEnv,
       ...commandOutputOptions(options.verbose),
+      // Windows needs shell mode to resolve .cmd shims.
+      shell: process.platform === "win32",
     })`bunx electron-builder ${platformConfig.cliFlag} --${options.arch} --publish never`,
   );
 

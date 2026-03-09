@@ -1,11 +1,14 @@
 import {
+  ArrowLeftIcon,
   ChevronRightIcon,
   FolderIcon,
   GitPullRequestIcon,
   MoonIcon,
   PanelBottomIcon,
   PanelRightIcon,
+  PlusIcon,
   RocketIcon,
+  SettingsIcon,
   SquarePenIcon,
   SunIcon,
   TerminalIcon,
@@ -22,7 +25,7 @@ import {
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { useAppSettings } from "../appSettings";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL } from "../branding";
@@ -243,7 +246,7 @@ function getServerHttpOrigin(): string {
       ? bridgeUrl
       : envUrl && envUrl.length > 0
         ? envUrl
-        : `ws://${window.location.hostname}:${window.location.port}`;
+        : `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.hostname}:${window.location.port}`;
   // Parse to extract just the origin, dropping path/query (e.g. ?token=…)
   const httpUrl = wsUrl.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
   try {
@@ -298,6 +301,7 @@ export default function Sidebar() {
     (store) => store.clearProjectDraftThreadById,
   );
   const navigate = useNavigate();
+  const isOnSettings = useLocation({ select: (loc) => loc.pathname === "/settings" });
   const { settings: appSettings } = useAppSettings();
   const { resolvedTheme, setTheme } = useTheme();
   const routeThreadId = useParams({
@@ -316,6 +320,8 @@ export default function Sidebar() {
   const [isAddingProject, setIsAddingProject] = useState(false);
   const [highlightedAddProjectSuggestionIndex, setHighlightedAddProjectSuggestionIndex] =
     useState(0);
+  const [addProjectError, setAddProjectError] = useState<string | null>(null);
+  const addProjectInputRef = useRef<HTMLInputElement | null>(null);
   const [renamingThreadId, setRenamingThreadId] = useState<ThreadId | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
   const [expandedThreadListsByProject, setExpandedThreadListsByProject] = useState<
@@ -323,7 +329,6 @@ export default function Sidebar() {
   >(() => new Set());
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
-  const addProjectInputRef = useRef<HTMLInputElement | null>(null);
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
   const addProjectSearchInput = useMemo(() => deriveAddProjectSearchInput(newCwd), [newCwd]);
   const addProjectSearchEntriesQuery = useQuery(
@@ -448,6 +453,7 @@ export default function Sidebar() {
   const closeAddProject = useCallback(() => {
     setAddingProject(false);
     setNewCwd("");
+    setAddProjectError(null);
     setHighlightedAddProjectSuggestionIndex(0);
   }, []);
 
@@ -580,12 +586,9 @@ export default function Sidebar() {
         await handleNewThread(projectId).catch(() => undefined);
       } catch (error) {
         setIsAddingProject(false);
-        toastManager.add({
-          type: "error",
-          title: "Unable to add project",
-          description:
-            error instanceof Error ? error.message : "An error occurred while adding the project.",
-        });
+        setAddProjectError(
+          error instanceof Error ? error.message : "An error occurred while adding the project.",
+        );
         return;
       }
       finishAddingProject();
@@ -609,6 +612,8 @@ export default function Sidebar() {
     }
     if (pickedPath) {
       await addProjectFromPath(pickedPath);
+    } else {
+      addProjectInputRef.current?.focus();
     }
     setIsPickingFolder(false);
   };
@@ -1153,7 +1158,7 @@ export default function Sidebar() {
     <>
       {isElectron ? (
         <>
-          <SidebarHeader className="drag-region h-[52px] flex-row items-center gap-2 px-4 py-0 pl-[82px]">
+          <SidebarHeader className="drag-region h-[52px] flex-row items-center gap-2 px-4 py-0 pl-[90px]">
             {wordmark}
             {headerActions}
           </SidebarHeader>
@@ -1167,6 +1172,176 @@ export default function Sidebar() {
 
       <SidebarContent className="gap-0">
         <SidebarGroup className="px-2 py-2">
+          <div className="mb-1 flex items-center justify-between px-2">
+            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+              Projects
+            </span>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label="Add project"
+                    className="inline-flex size-5 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
+                    onClick={() => {
+                      setAddingProject((prev) => !prev);
+                      setAddProjectError(null);
+                    }}
+                  />
+                }
+              >
+                <PlusIcon className="size-3.5" />
+              </TooltipTrigger>
+              <TooltipPopup side="right">Add project</TooltipPopup>
+            </Tooltip>
+          </div>
+
+          {addingProject && (
+            <div className="mb-2 px-1">
+              {isElectron && (
+                <button
+                  type="button"
+                  className="mb-1.5 flex w-full items-center justify-center gap-2 rounded-md border border-border bg-secondary py-1.5 text-xs text-foreground/80 transition-colors duration-150 hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={() => void handlePickFolder()}
+                  disabled={isPickingFolder || isAddingProject}
+                >
+                  <FolderIcon className="size-3.5" />
+                  {isPickingFolder ? "Picking folder..." : "Browse for folder"}
+                </button>
+              )}
+              <div className="flex gap-1.5">
+                <input
+                  ref={addProjectInputRef}
+                  className={`min-w-0 flex-1 rounded-md border bg-secondary px-2 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none ${
+                    addProjectError
+                      ? "border-red-500/70 focus:border-red-500"
+                      : "border-border focus:border-ring"
+                  }`}
+                  placeholder="/path/to/project"
+                  value={newCwd}
+                  onChange={(event) => {
+                    setNewCwd(event.target.value);
+                    setAddProjectError(null);
+                    setHighlightedAddProjectSuggestionIndex(0);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "ArrowDown") {
+                      if (addProjectSuggestions.length === 0) return;
+                      event.preventDefault();
+                      setHighlightedAddProjectSuggestionIndex(
+                        (index) => (index + 1) % addProjectSuggestions.length,
+                      );
+                      return;
+                    }
+                    if (event.key === "ArrowUp") {
+                      if (addProjectSuggestions.length === 0) return;
+                      event.preventDefault();
+                      setHighlightedAddProjectSuggestionIndex(
+                        (index) =>
+                          (index - 1 + addProjectSuggestions.length) % addProjectSuggestions.length,
+                      );
+                      return;
+                    }
+                    if (event.key === "Tab") {
+                      if (!highlightedAddProjectSuggestion) return;
+                      event.preventDefault();
+                      setNewCwd(highlightedAddProjectSuggestion.fullPath);
+                      return;
+                    }
+                    if (event.key === "Enter") {
+                      if (
+                        highlightedAddProjectSuggestion &&
+                        normalizeAddProjectPathInput(newCwd) !== highlightedAddProjectSuggestion.fullPath
+                      ) {
+                        event.preventDefault();
+                        setNewCwd(highlightedAddProjectSuggestion.fullPath);
+                        return;
+                      }
+                      handleAddProject();
+                    }
+                    if (event.key === "Escape") {
+                      closeAddProject();
+                    }
+                  }}
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors duration-150 hover:bg-primary/90 disabled:opacity-60"
+                  onClick={handleAddProject}
+                  disabled={isAddingProject}
+                >
+                  {isAddingProject ? "Adding..." : "Add"}
+                </button>
+              </div>
+              {addProjectError && (
+                <p className="mt-1 px-0.5 text-[11px] leading-tight text-red-400">
+                  {addProjectError}
+                </p>
+              )}
+              {addProjectSuggestions.length > 0 && (
+                <div className="mt-1.5 rounded-md border border-border bg-background/70 p-1">
+                  <div className="px-2 pb-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/50">
+                    Searching in {addProjectSearchInput.cwd ?? "/"}
+                  </div>
+                  {addProjectSuggestions.map((suggestion, index) => {
+                    const isHighlighted = index === highlightedAddProjectSuggestionIndex;
+                    return (
+                      <button
+                        key={suggestion.fullPath}
+                        type="button"
+                        className={cn(
+                          "flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors duration-150",
+                          isHighlighted
+                            ? "bg-accent text-foreground"
+                            : "text-muted-foreground hover:bg-accent/70 hover:text-foreground",
+                        )}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => {
+                          setNewCwd(suggestion.fullPath);
+                          addProjectInputRef.current?.focus();
+                        }}
+                      >
+                        <FolderIcon className="mt-0.5 size-3.5 shrink-0" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-mono text-foreground">
+                            {suggestion.label}
+                          </span>
+                          <span className="block truncate font-mono text-[10px] text-muted-foreground/70">
+                            {suggestion.breadcrumb}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {addProjectSearchEntriesQuery.data?.truncated && (
+                    <p className="px-2 pt-1 text-[10px] text-muted-foreground/60">
+                      Narrow the path to show more matches.
+                    </p>
+                  )}
+                </div>
+              )}
+              {newCwd.trim().length > 0 &&
+                addProjectSearchInput.query.length > 0 &&
+                addProjectSuggestions.length === 0 && (
+                  <div className="mt-1.5 rounded-md border border-dashed border-border px-2 py-1.5 text-[10px] text-muted-foreground/60">
+                    {addProjectSearchEntriesQuery.isFetching
+                      ? "Searching directories..."
+                      : "No matching directories."}
+                  </div>
+                )}
+              <div className="mt-1.5 px-0.5">
+                <button
+                  type="button"
+                  className="text-[11px] text-muted-foreground/50 transition-colors hover:text-muted-foreground"
+                  onClick={closeAddProject}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
           <SidebarMenu>
             {projects.map((project) => {
               const projectThreads = threads
@@ -1430,154 +1605,37 @@ export default function Sidebar() {
 
           {projects.length === 0 && !addingProject && (
             <div className="px-2 pt-4 text-center text-xs text-muted-foreground/60">
-              No projects yet.
-              <br />
-              Add one to get started.
+              No projects yet
             </div>
           )}
         </SidebarGroup>
       </SidebarContent>
 
       <SidebarSeparator />
-      <SidebarFooter className="gap-0 p-3">
-        {addingProject ? (
-          <>
-            <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
-              Add project
-            </p>
-            <input
-              ref={addProjectInputRef}
-              className="mb-2 w-full rounded-md border border-border bg-secondary px-2 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-ring focus:outline-none"
-              placeholder="/path/to/project"
-              value={newCwd}
-              onChange={(event) => setNewCwd(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "ArrowDown") {
-                  if (addProjectSuggestions.length === 0) return;
-                  event.preventDefault();
-                  setHighlightedAddProjectSuggestionIndex(
-                    (index) => (index + 1) % addProjectSuggestions.length,
-                  );
-                  return;
-                }
-                if (event.key === "ArrowUp") {
-                  if (addProjectSuggestions.length === 0) return;
-                  event.preventDefault();
-                  setHighlightedAddProjectSuggestionIndex(
-                    (index) =>
-                      (index - 1 + addProjectSuggestions.length) % addProjectSuggestions.length,
-                  );
-                  return;
-                }
-                  if (event.key === "Tab") {
-                    if (!highlightedAddProjectSuggestion) return;
-                    event.preventDefault();
-                    setNewCwd(highlightedAddProjectSuggestion.fullPath);
-                    return;
-                  }
-                  if (event.key === "Enter") {
-                    if (
-                      highlightedAddProjectSuggestion &&
-                      normalizeAddProjectPathInput(newCwd) !== highlightedAddProjectSuggestion.fullPath
-                    ) {
-                      event.preventDefault();
-                      setNewCwd(highlightedAddProjectSuggestion.fullPath);
-                      return;
-                    }
-                    handleAddProject();
-                  return;
-                }
-                if (event.key === "Escape") {
-                  closeAddProject();
-                }
-              }}
-            />
-            {addProjectSuggestions.length > 0 && (
-              <div className="mb-2 rounded-md border border-border bg-background/70 p-1">
-                <div className="px-2 pb-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/50">
-                  Searching in {addProjectSearchInput.cwd ?? "/"}
-                </div>
-                {addProjectSuggestions.map((suggestion, index) => {
-                  const isHighlighted = index === highlightedAddProjectSuggestionIndex;
-                  return (
-                    <button
-                      key={suggestion.fullPath}
-                      type="button"
-                      className={cn(
-                        "flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors duration-150",
-                        isHighlighted
-                          ? "bg-accent text-foreground"
-                          : "text-muted-foreground hover:bg-accent/70 hover:text-foreground",
-                      )}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => {
-                        setNewCwd(suggestion.fullPath);
-                        addProjectInputRef.current?.focus();
-                      }}
-                    >
-                      <FolderIcon className="mt-0.5 size-3.5 shrink-0" />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate font-mono text-foreground">
-                          {suggestion.label}
-                        </span>
-                        <span className="block truncate font-mono text-[10px] text-muted-foreground/70">
-                          {suggestion.breadcrumb}
-                        </span>
-                      </span>
-                    </button>
-                  );
-                })}
-                {addProjectSearchEntriesQuery.data?.truncated && (
-                  <p className="px-2 pt-1 text-[10px] text-muted-foreground/60">
-                    Narrow the path to show more matches.
-                  </p>
-                )}
-              </div>
+      <SidebarFooter className="p-2">
+        <SidebarMenu>
+          <SidebarMenuItem>
+            {isOnSettings ? (
+              <SidebarMenuButton
+                size="sm"
+                className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+                onClick={() => window.history.back()}
+              >
+                <ArrowLeftIcon className="size-3.5" />
+                <span className="text-xs">Back</span>
+              </SidebarMenuButton>
+            ) : (
+              <SidebarMenuButton
+                size="sm"
+                className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+                onClick={() => void navigate({ to: "/settings" })}
+              >
+                <SettingsIcon className="size-3.5" />
+                <span className="text-xs">Settings</span>
+              </SidebarMenuButton>
             )}
-            {newCwd.trim().length > 0 &&
-              addProjectSearchInput.query.length > 0 &&
-              addProjectSuggestions.length === 0 && (
-                <div className="mb-2 rounded-md border border-dashed border-border px-2 py-1.5 text-[10px] text-muted-foreground/60">
-                  {addProjectSearchEntriesQuery.isFetching ? "Searching directories..." : "No matching directories."}
-                </div>
-              )}
-            {isElectron && (
-              <button
-                type="button"
-                className="mb-2 flex w-full items-center justify-center rounded-md border border-border px-2 py-1.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
-                onClick={() => void handlePickFolder()}
-                disabled={isPickingFolder || isAddingProject}
-              >
-                {isPickingFolder ? "Picking folder..." : "Browse for folder"}
-              </button>
-            )}
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className="flex-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground transition-colors duration-150 hover:bg-primary/90"
-                onClick={handleAddProject}
-                disabled={isAddingProject}
-              >
-                {isAddingProject ? "Adding..." : "Add"}
-              </button>
-              <button
-                type="button"
-                className="flex-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground/80 transition-colors duration-150 hover:bg-secondary"
-                onClick={closeAddProject}
-              >
-                Cancel
-              </button>
-            </div>
-          </>
-        ) : (
-          <button
-            type="button"
-            className="flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-border py-2 text-xs text-muted-foreground/70 transition-colors duration-150 hover:border-ring hover:text-muted-foreground"
-            onClick={() => setAddingProject(true)}
-          >
-            + Add project
-          </button>
-        )}
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarFooter>
     </>
   );
