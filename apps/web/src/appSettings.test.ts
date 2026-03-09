@@ -38,6 +38,12 @@ describe("getAppModelOptions", () => {
     ]);
   });
 
+  it("supports cursor built-in and custom model options", () => {
+    const options = getAppModelOptions("cursor", ["cursor/custom-model"]);
+
+    expect(options.map((option) => option.slug)).toEqual(["auto", "cursor/custom-model"]);
+  });
+
   it("keeps the currently selected custom model available even if it is no longer saved", () => {
     const options = getAppModelOptions("codex", [], "custom/selected-model");
 
@@ -58,6 +64,7 @@ describe("resolveAppModelSelection", () => {
 
   it("falls back to the provider default when no model is selected", () => {
     expect(resolveAppModelSelection("codex", [], "")).toBe("gpt-5.4");
+    expect(resolveAppModelSelection("cursor", [], "")).toBe("auto");
   });
 });
 

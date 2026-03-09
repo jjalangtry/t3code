@@ -7,8 +7,10 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 import {
   checkClaudeCodeProviderStatus,
   checkCodexProviderStatus,
+  checkCursorProviderStatus,
   parseAuthStatusFromOutput,
   parseClaudeAuthStatusFromOutput,
+  parseCursorAuthStatusFromOutput,
 } from "./ProviderHealth";
 
 // ── Test helpers ────────────────────────────────────────────────────
@@ -292,4 +294,35 @@ it("parseClaudeAuthStatusFromOutput: not authenticated text is unauthenticated",
   });
   assert.strictEqual(parsed.status, "error");
   assert.strictEqual(parsed.authStatus, "unauthenticated");
+});
+
+it.effect("returns unavailable when cursor provider is disabled by feature flag", () =>
+  Effect.gen(function* () {
+    const previous = process.env.T3CODE_ENABLE_CURSOR_PROVIDER;
+    process.env.T3CODE_ENABLE_CURSOR_PROVIDER = "0";
+    try {
+      const status = yield* checkCursorProviderStatus;
+      assert.strictEqual(status.provider, "cursor");
+      assert.strictEqual(status.available, false);
+      assert.strictEqual(status.status, "warning");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.T3CODE_ENABLE_CURSOR_PROVIDER;
+      } else {
+        process.env.T3CODE_ENABLE_CURSOR_PROVIDER = previous;
+      }
+    }
+  }).pipe(
+    Effect.provide(
+      mockSpawnerLayer((args) => {
+        throw new Error(`Unexpected args: ${args.join(" ")}`);
+      }),
+    ),
+  ),
+);
+
+it("parseCursorAuthStatusFromOutput: exit code 0 with no auth markers is ready", () => {
+  const parsed = parseCursorAuthStatusFromOutput({ stdout: "OK\n", stderr: "", code: 0 });
+  assert.strictEqual(parsed.status, "ready");
+  assert.strictEqual(parsed.authStatus, "authenticated");
 });

@@ -780,7 +780,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     const lastVisitedAt = activeThread.lastVisitedAt ? Date.parse(activeThread.lastVisitedAt) : NaN;
     if (!Number.isNaN(lastVisitedAt) && lastVisitedAt >= turnCompletedAt) return;
 
-    markThreadVisited(activeThread.id);
+    markThreadVisited(activeThread.id, activeLatestTurn.completedAt);
   }, [
     activeThread?.id,
     activeThread?.lastVisitedAt,
@@ -808,7 +808,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
     activeThread?.model ?? activeProject?.model ?? getDefaultModel(selectedProvider),
   );
   const customModelsForSelectedProvider =
-    selectedProvider === "claudeCode" ? settings.customClaudeModels : settings.customCodexModels;
+    selectedProvider === "codex"
+      ? settings.customCodexModels
+      : selectedProvider === "claudeCode"
+        ? settings.customClaudeModels
+        : settings.customCursorModels;
   const selectedModel = useMemo(() => {
     const draftModel = composerDraft.model;
     if (!draftModel) {
@@ -836,16 +840,37 @@ export default function ChatView({ threadId }: ChatViewProps) {
     return Object.keys(codexOptions).length > 0 ? { codex: codexOptions } : undefined;
   }, [selectedCodexFastModeEnabled, selectedEffort, selectedProvider, supportsReasoningEffort]);
   const providerOptionsForDispatch = useMemo(() => {
-    if (!settings.codexBinaryPath && !settings.codexHomePath) {
-      return undefined;
-    }
-    return {
-      codex: {
-        ...(settings.codexBinaryPath ? { binaryPath: settings.codexBinaryPath } : {}),
-        ...(settings.codexHomePath ? { homePath: settings.codexHomePath } : {}),
-      },
+    const options = {
+      ...(settings.codexBinaryPath || settings.codexHomePath
+        ? {
+            codex: {
+              ...(settings.codexBinaryPath ? { binaryPath: settings.codexBinaryPath } : {}),
+              ...(settings.codexHomePath ? { homePath: settings.codexHomePath } : {}),
+            },
+          }
+        : {}),
+      ...(settings.claudeBinaryPath
+        ? {
+            claudeCode: {
+              binaryPath: settings.claudeBinaryPath,
+            },
+          }
+        : {}),
+      ...(settings.cursorBinaryPath
+        ? {
+            cursor: {
+              binaryPath: settings.cursorBinaryPath,
+            },
+          }
+        : {}),
     };
-  }, [settings.codexBinaryPath, settings.codexHomePath]);
+    return Object.keys(options).length > 0 ? options : undefined;
+  }, [
+    settings.claudeBinaryPath,
+    settings.codexBinaryPath,
+    settings.codexHomePath,
+    settings.cursorBinaryPath,
+  ]);
   const selectedModelForPicker = selectedModel;
   const modelOptionsByProvider = useMemo(
     () => getCustomModelOptionsByProvider(settings),
@@ -857,23 +882,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
       ? selectedModelForPicker
       : (normalizeModelSlug(selectedModelForPicker, selectedProvider) ?? selectedModelForPicker);
   }, [modelOptionsByProvider, selectedModelForPicker, selectedProvider]);
-  const searchableModelOptions = useMemo(
-    () =>
-      AVAILABLE_PROVIDER_OPTIONS.filter(
-        (option) => lockedProvider === null || option.value === lockedProvider,
-      ).flatMap((option) =>
-        modelOptionsByProvider[option.value].map(({ slug, name }) => ({
-          provider: option.value,
-          providerLabel: option.label,
-          slug,
-          name,
-          searchSlug: slug.toLowerCase(),
-          searchName: name.toLowerCase(),
-          searchProvider: option.label.toLowerCase(),
-        })),
-      ),
-    [lockedProvider, modelOptionsByProvider],
-  );
   const phase = derivePhase(activeThread?.session ?? null);
   const isSendBusy = sendPhase !== "idle";
   const isPreparingWorktree = sendPhase === "preparing-worktree";
@@ -1206,6 +1214,38 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }),
   );
   const workspaceEntries = workspaceEntriesQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES;
+  const providerStatuses = serverConfigQuery.data?.providers ?? EMPTY_PROVIDER_STATUSES;
+  const providerOptions = useMemo(
+    () =>
+      PROVIDER_OPTIONS.map((option) => ({
+        ...option,
+        available:
+          providerStatuses.find((status) => status.provider === option.value)?.available ??
+          option.available,
+      })),
+    [providerStatuses],
+  );
+  const availableProviderOptions = useMemo(
+    () => providerOptions.filter((option) => option.available),
+    [providerOptions],
+  );
+  const searchableModelOptions = useMemo(
+    () =>
+      availableProviderOptions
+        .filter((option) => lockedProvider === null || option.value === lockedProvider)
+        .flatMap((option) =>
+          modelOptionsByProvider[option.value].map(({ slug, name }) => ({
+            provider: option.value,
+            providerLabel: option.label,
+            slug,
+            name,
+            searchSlug: slug.toLowerCase(),
+            searchName: name.toLowerCase(),
+            searchProvider: option.label.toLowerCase(),
+          })),
+        ),
+    [availableProviderOptions, lockedProvider, modelOptionsByProvider],
+  );
   const composerMenuItems = useMemo<ComposerCommandItem[]>(() => {
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "path") {
@@ -1288,7 +1328,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const keybindings = serverConfigQuery.data?.keybindings ?? EMPTY_KEYBINDINGS;
   const availableEditors = serverConfigQuery.data?.availableEditors ?? EMPTY_AVAILABLE_EDITORS;
-  const providerStatuses = serverConfigQuery.data?.providers ?? EMPTY_PROVIDER_STATUSES;
   const activeProvider = activeThread?.session?.provider ?? "codex";
   const activeProviderStatus = useMemo(
     () => providerStatuses.find((status) => status.provider === activeProvider) ?? null,
@@ -3157,7 +3196,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
       }
       setComposerDraftProvider(activeThread.id, provider);
       const customModels =
-        provider === "claudeCode" ? settings.customClaudeModels : settings.customCodexModels;
+        provider === "codex"
+          ? settings.customCodexModels
+          : provider === "claudeCode"
+            ? settings.customClaudeModels
+            : settings.customCursorModels;
       setComposerDraftModel(
         activeThread.id,
         resolveAppModelSelection(provider, customModels, model),
@@ -3169,6 +3212,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       lockedProvider,
       scheduleComposerFocus,
       settings.customClaudeModels,
+      settings.customCursorModels,
       setComposerDraftModel,
       setComposerDraftProvider,
       settings.customCodexModels,
@@ -3739,6 +3783,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                     provider={selectedProvider}
                     model={selectedModelForPickerWithCustomFallback}
                     lockedProvider={lockedProvider}
+                    providerOptions={providerOptions}
                     modelOptionsByProvider={modelOptionsByProvider}
                     serviceTierSetting={selectedServiceTierSetting}
                     onProviderModelChange={onProviderModelSelect}
@@ -4354,7 +4399,9 @@ const ProviderHealthBanner = memo(function ProviderHealthBanner({
       ? "Codex"
       : status.provider === "claudeCode"
         ? "Claude Code"
-        : status.provider;
+        : status.provider === "cursor"
+          ? "Cursor"
+          : status.provider;
 
   const defaultMessage =
     status.status === "error"
@@ -5584,16 +5631,6 @@ const MessagesTimeline = memo(function MessagesTimeline({
   );
 });
 
-function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): option is {
-  value: ProviderKind;
-  label: string;
-  available: true;
-} {
-  return option.available;
-}
-
-const AVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter(isAvailableProviderOption);
-const UNAVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter((option) => !option.available);
 const COMING_SOON_PROVIDER_OPTIONS = [
   { id: "opencode", label: "OpenCode", icon: OpenCodeIcon },
   { id: "gemini", label: "Gemini", icon: Gemini },
@@ -5602,10 +5639,12 @@ const COMING_SOON_PROVIDER_OPTIONS = [
 function getCustomModelOptionsByProvider(settings: {
   customCodexModels: readonly string[];
   customClaudeModels: readonly string[];
+  customCursorModels: readonly string[];
 }): Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>> {
   return {
     codex: getAppModelOptions("codex", settings.customCodexModels),
     claudeCode: getAppModelOptions("claudeCode", settings.customClaudeModels),
+    cursor: getAppModelOptions("cursor", settings.customCursorModels),
   };
 }
 
@@ -5652,6 +5691,11 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   provider: ProviderKind;
   model: ModelSlug;
   lockedProvider: ProviderKind | null;
+  providerOptions: ReadonlyArray<{
+    value: ProviderKind;
+    label: string;
+    available: boolean;
+  }>;
   modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>;
   serviceTierSetting: AppServiceTier;
   disabled?: boolean;
@@ -5662,6 +5706,8 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   const selectedModelLabel =
     selectedProviderOptions.find((option) => option.slug === props.model)?.name ?? props.model;
   const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[props.provider];
+  const availableProviderOptions = props.providerOptions.filter((option) => option.available);
+  const unavailableProviderOptions = props.providerOptions.filter((option) => !option.available);
 
   return (
     <Menu
@@ -5694,7 +5740,7 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         </span>
       </MenuTrigger>
       <MenuPopup align="start">
-        {AVAILABLE_PROVIDER_OPTIONS.map((option) => {
+        {availableProviderOptions.map((option) => {
           const OptionIcon = PROVIDER_ICON_BY_PROVIDER[option.value];
           const isDisabledByProviderLock =
             props.lockedProvider !== null && props.lockedProvider !== option.value;
@@ -5744,8 +5790,8 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             </MenuSub>
           );
         })}
-        {UNAVAILABLE_PROVIDER_OPTIONS.length > 0 && <MenuDivider />}
-        {UNAVAILABLE_PROVIDER_OPTIONS.map((option) => {
+        {unavailableProviderOptions.length > 0 && <MenuDivider />}
+        {unavailableProviderOptions.map((option) => {
           const OptionIcon = PROVIDER_ICON_BY_PROVIDER[option.value];
           return (
             <MenuItem key={option.value} disabled>
@@ -5763,7 +5809,7 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             </MenuItem>
           );
         })}
-        {UNAVAILABLE_PROVIDER_OPTIONS.length === 0 && <MenuDivider />}
+        {unavailableProviderOptions.length === 0 && <MenuDivider />}
         {COMING_SOON_PROVIDER_OPTIONS.map((option) => {
           const OptionIcon = option.icon;
           return (

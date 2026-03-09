@@ -1,13 +1,13 @@
 /**
- * ClaudeCodeAdapterLive - Claude Code CLI-backed provider adapter.
+ * CursorAdapterLive - Cursor CLI-backed provider adapter.
  *
- * Executes Claude turns through `claude --print --verbose --output-format stream-json`
+ * Executes Cursor turns through `cursor-agent --print --output-format stream-json`
  * and projects the streamed CLI events into canonical provider runtime events.
  *
- * This implementation keeps the public adapter contract stable while moving the
- * production path off the SDK runtime.
+ * This implementation mirrors the Claude CLI adapter pattern: per-turn subprocess,
+ * NDJSON stream parsing, local turn journaling, and canonical event emission.
  *
- * @module ClaudeCodeAdapterLive
+ * @module CursorAdapterLive
  */
 import {
   type CanonicalItemType,
@@ -22,10 +22,9 @@ import {
   RuntimeRequestId,
   ThreadId,
   TurnId as TurnIdBrand,
-  type RuntimeTaskId,
 } from "@t3tools/contracts";
 import { Effect, Layer, Queue, Stream } from "effect";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn } from "node:child_process";
 
 import {
   ProviderAdapterProcessError,
@@ -35,7 +34,7 @@ import {
   ProviderAdapterValidationError,
   type ProviderAdapterError,
 } from "../Errors.ts";
-import { ClaudeCodeAdapter, type ClaudeCodeAdapterShape } from "../Services/ClaudeCodeAdapter.ts";
+import { CursorAdapter, type CursorAdapterShape } from "../Services/CursorAdapter.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import {
   asArray,
@@ -51,7 +50,7 @@ import {
   titleForTool,
 } from "../cli/shared.ts";
 
-const PROVIDER = "claudeCode" as const;
+const PROVIDER = "cursor" as const;
 const GENERIC_PLAN_MODE_PROMPT = [
   "You are in Plan Mode.",
   "Do not execute code changes.",
@@ -59,7 +58,9 @@ const GENERIC_PLAN_MODE_PROMPT = [
   "If you maintain a todo list, keep it accurate as you reason.",
 ].join("\n");
 
-interface ClaudeCliTurnProcess {
+// ── Types ──────────────────────────────────────────────────────────
+
+interface CursorCliTurnProcess {
   readonly pid?: number;
   readonly stdout: NodeJS.ReadableStream;
   readonly stderr: NodeJS.ReadableStream;
@@ -67,7 +68,7 @@ interface ClaudeCliTurnProcess {
   on(event: "exit", listener: (code: number | null, signal: NodeJS.Signals | null) => void): this;
 }
 
-interface ClaudeToolInFlight {
+interface CursorToolInFlight {
   readonly index: number;
   readonly itemId: string;
   readonly itemType: CanonicalItemType;
@@ -75,13 +76,13 @@ interface ClaudeToolInFlight {
   readonly detail?: string;
 }
 
-interface ClaudeTurnState {
+interface CursorTurnState {
   readonly turnId: TurnId;
   assistantItemId: string;
   readonly startedAt: string;
-  readonly child: ClaudeCliTurnProcess;
+  readonly child: CursorCliTurnProcess;
   readonly items: Array<unknown>;
-  readonly inFlightTools: Map<number, ClaudeToolInFlight>;
+  readonly inFlightTools: Map<number, CursorToolInFlight>;
   assistantText: string;
   emittedTextDelta: boolean;
   messageCompleted: boolean;
@@ -89,21 +90,20 @@ interface ClaudeTurnState {
   completed: boolean;
 }
 
-interface ClaudeSessionContext {
+interface CursorSessionContext {
   session: ProviderSession;
   readonly binaryPath: string;
-  readonly defaultPermissionMode?: string;
   readonly turns: Array<{
     readonly id: TurnId;
     readonly items: Array<unknown>;
   }>;
-  turnState: ClaudeTurnState | undefined;
+  turnState: CursorTurnState | undefined;
   providerThreadId: string | undefined;
   lastAssistantMessageId: string | undefined;
   stopped: boolean;
 }
 
-export interface ClaudeCodeAdapterLiveOptions {
+export interface CursorAdapterLiveOptions {
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
   readonly spawnTurnProcess?: (input: {
@@ -111,8 +111,10 @@ export interface ClaudeCodeAdapterLiveOptions {
     readonly args: ReadonlyArray<string>;
     readonly cwd?: string;
     readonly env: NodeJS.ProcessEnv;
-  }) => ClaudeCliTurnProcess;
+  }) => CursorCliTurnProcess;
 }
+
+// ── Helpers ────────────────────────────────────────────────────────
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -124,10 +126,6 @@ function nextEventId() {
 
 function asRuntimeItemId(value: string): RuntimeItemId {
   return RuntimeItemId.makeUnsafe(value);
-}
-
-function asRuntimeTaskId(value: string): RuntimeTaskId {
-  return value as RuntimeTaskId;
 }
 
 function toMessage(cause: unknown, fallback: string): string {
@@ -152,7 +150,7 @@ function buildUserPrompt(input: ProviderSendTurnInput): string {
   return fragments.join("\n\n");
 }
 
-function readClaudeResumeState(resumeCursor: unknown): {
+function readCursorResumeState(resumeCursor: unknown): {
   readonly resume?: string;
   readonly turnCount?: number;
 } {
@@ -169,7 +167,7 @@ function readClaudeResumeState(resumeCursor: unknown): {
   };
 }
 
-function turnStatusFromClaudeResult(line: Record<string, unknown>): ProviderRuntimeTurnStatus {
+function turnStatusFromCursorResult(line: Record<string, unknown>): ProviderRuntimeTurnStatus {
   const subtype = asString(line.subtype);
   if (subtype === "success") {
     return "completed";
@@ -197,21 +195,23 @@ function extractAssistantText(message: Record<string, unknown>): string {
   return fragments.join("");
 }
 
-function spawnClaudeTurnProcess(input: {
+function spawnCursorTurnProcess(input: {
   readonly binaryPath: string;
   readonly args: ReadonlyArray<string>;
   readonly cwd?: string;
   readonly env: NodeJS.ProcessEnv;
-}): ClaudeCliTurnProcess {
+}): CursorCliTurnProcess {
   const child = spawn(input.binaryPath, [...input.args], {
     cwd: input.cwd,
     env: input.env,
     stdio: ["ignore", "pipe", "pipe"],
   });
-  return child as unknown as ClaudeCliTurnProcess;
+  return child as unknown as CursorCliTurnProcess;
 }
 
-function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
+// ── Adapter implementation ─────────────────────────────────────────
+
+function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
   return Effect.gen(function* () {
     const nativeEventLogger =
       options?.nativeEventLogger ??
@@ -220,9 +220,9 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
             stream: "native",
           })
         : undefined);
-    const spawnTurn = options?.spawnTurnProcess ?? spawnClaudeTurnProcess;
+    const spawnTurn = options?.spawnTurnProcess ?? spawnCursorTurnProcess;
 
-    const sessions = new Map<ThreadId, ClaudeSessionContext>();
+    const sessions = new Map<ThreadId, CursorSessionContext>();
     const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
 
     const offerRuntimeEvent = (event: ProviderRuntimeEvent): void => {
@@ -230,7 +230,7 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
     };
 
     const logNativeLine = (
-      context: ClaudeSessionContext,
+      context: CursorSessionContext,
       turnId: TurnId | undefined,
       method: string,
       payload: unknown,
@@ -257,7 +257,7 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
     };
 
     const emitRuntimeError = (
-      context: ClaudeSessionContext,
+      context: CursorSessionContext,
       message: string,
       extra?: {
         readonly turnId?: TurnId | undefined;
@@ -280,7 +280,7 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
     };
 
     const emitRuntimeWarning = (
-      context: ClaudeSessionContext,
+      context: CursorSessionContext,
       message: string,
       detail?: unknown,
     ): void => {
@@ -298,7 +298,7 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
       });
     };
 
-    const snapshotThread = (context: ClaudeSessionContext) => ({
+    const snapshotThread = (context: CursorSessionContext) => ({
       threadId: context.session.threadId,
       turns: context.turns.map((turn) => ({
         id: turn.id,
@@ -307,8 +307,8 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
     });
 
     const updateSessionReady = (
-      context: ClaudeSessionContext,
-      options?: { readonly lastError?: string },
+      context: CursorSessionContext,
+      opts?: { readonly lastError?: string },
     ): void => {
       const turnCount = context.turns.length;
       context.session = {
@@ -328,12 +328,12 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
               },
             }
           : {}),
-        ...(options?.lastError ? { lastError: options.lastError } : {}),
+        ...(opts?.lastError ? { lastError: opts.lastError } : {}),
       };
     };
 
     const completeTurn = (
-      context: ClaudeSessionContext,
+      context: CursorSessionContext,
       status: ProviderRuntimeTurnStatus,
       resultLine?: Record<string, unknown>,
       errorMessage?: string,
@@ -414,7 +414,7 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
       context.turnState = undefined;
     };
 
-    const ensureProviderThreadId = (context: ClaudeSessionContext, sessionId: string | undefined): void => {
+    const ensureProviderThreadId = (context: CursorSessionContext, sessionId: string | undefined): void => {
       if (!sessionId || context.providerThreadId === sessionId) return;
       context.providerThreadId = sessionId;
       context.session = {
@@ -441,7 +441,7 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
     };
 
     const handleToolStart = (
-      context: ClaudeSessionContext,
+      context: CursorSessionContext,
       toolIndex: number,
       block: Record<string, unknown>,
     ): void => {
@@ -452,7 +452,7 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
       const input = isRecord(block.input) ? block.input : undefined;
       const itemId = asString(block.id) ?? crypto.randomUUID();
       const detail = summarizeToolRequest(toolName, input);
-      const inFlight: ClaudeToolInFlight = {
+      const inFlight: CursorToolInFlight = {
         index: toolIndex,
         itemId,
         itemType,
@@ -521,12 +521,12 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
       }
     };
 
-    const handleCliMessage = (context: ClaudeSessionContext, line: Record<string, unknown>): void => {
+    const handleCliMessage = (context: CursorSessionContext, line: Record<string, unknown>): void => {
       const messageType = asString(line.type) ?? "unknown";
       const turnId = context.turnState?.turnId;
-      logNativeLine(context, turnId, `claude.cli/${messageType}`, line);
+      logNativeLine(context, turnId, `cursor.cli/${messageType}`, line);
 
-      ensureProviderThreadId(context, asString(line.session_id));
+      ensureProviderThreadId(context, asString(line.session_id) ?? asString(line.conversation_id));
 
       if (messageType === "system") {
         const subtype = asString(line.subtype);
@@ -701,13 +701,13 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
       }
 
       if (messageType === "result") {
-        const status = turnStatusFromClaudeResult(line);
+        const status = turnStatusFromCursorResult(line);
         const errorMessage =
           status === "completed"
             ? undefined
             : asString(line.result) ??
               (asArray(line.errors)?.find((entry): entry is string => typeof entry === "string") ??
-                "Claude turn failed.");
+                "Cursor turn failed.");
         if (status === "failed" && errorMessage) {
           emitRuntimeError(context, errorMessage, {
             turnId: context.turnState?.turnId,
@@ -719,9 +719,9 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
     };
 
     const attachTurnProcess = (
-      context: ClaudeSessionContext,
+      context: CursorSessionContext,
       turnInput: ProviderSendTurnInput,
-      child: ClaudeCliTurnProcess,
+      child: CursorCliTurnProcess,
     ): void => {
       const turnState = context.turnState;
       if (!turnState) return;
@@ -738,10 +738,10 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
             if (isRecord(decoded)) {
               handleCliMessage(context, decoded);
             } else {
-              emitRuntimeWarning(context, "Ignored non-object Claude CLI stream event.", line);
+              emitRuntimeWarning(context, "Ignored non-object Cursor CLI stream event.", line);
             }
           } catch (cause) {
-            emitRuntimeWarning(context, "Failed to parse Claude CLI stream line.", {
+            emitRuntimeWarning(context, "Failed to parse Cursor CLI stream line.", {
               line,
               cause: toMessage(cause, "Invalid JSON"),
             });
@@ -784,7 +784,7 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
         const message =
           stderrMessage.length > 0
             ? stderrMessage
-            : `Claude CLI exited unexpectedly (${code ?? "unknown"}${signal ? `, ${signal}` : ""}).`;
+            : `Cursor CLI exited unexpectedly (${code ?? "unknown"}${signal ? `, ${signal}` : ""}).`;
         emitRuntimeError(context, message, {
           turnId: turnState.turnId,
           detail: {
@@ -798,7 +798,7 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
       });
     };
 
-    const requireSession = (threadId: ThreadId): Effect.Effect<ClaudeSessionContext, ProviderAdapterError> => {
+    const requireSession = (threadId: ThreadId): Effect.Effect<CursorSessionContext, ProviderAdapterError> => {
       const context = sessions.get(threadId);
       if (!context) {
         return Effect.fail(
@@ -819,7 +819,9 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
       return Effect.succeed(context);
     };
 
-    const startSession: ClaudeCodeAdapterShape["startSession"] = (input) =>
+    // ── Adapter methods ────────────────────────────────────────────
+
+    const startSession: CursorAdapterShape["startSession"] = (input) =>
       Effect.gen(function* () {
         if (input.provider !== undefined && input.provider !== PROVIDER) {
           return yield* new ProviderAdapterValidationError({
@@ -829,11 +831,8 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
           });
         }
 
-        const providerOptions = input.providerOptions?.claudeCode;
-        const resumeState = readClaudeResumeState(input.resumeCursor);
-        const permissionMode =
-          providerOptions?.permissionMode ??
-          (input.runtimeMode === "full-access" ? "bypassPermissions" : "default");
+        const providerOptions = input.providerOptions?.cursor;
+        const resumeState = readCursorResumeState(input.resumeCursor);
         const session: ProviderSession = {
           provider: PROVIDER,
           status: "ready",
@@ -854,10 +853,9 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
           updatedAt: nowIso(),
         };
 
-        const context: ClaudeSessionContext = {
+        const context: CursorSessionContext = {
           session,
-          binaryPath: providerOptions?.binaryPath ?? "claude",
-          defaultPermissionMode: permissionMode,
+          binaryPath: providerOptions?.binaryPath ?? "cursor-agent",
           turns: [],
           turnState: undefined,
           providerThreadId: resumeState.resume,
@@ -885,7 +883,6 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
             config: {
               ...(input.cwd ? { cwd: input.cwd } : {}),
               ...(input.model ? { model: input.model } : {}),
-              permissionMode,
               binaryPath: context.binaryPath,
             },
           },
@@ -906,7 +903,7 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
         return { ...session };
       });
 
-    const sendTurn: ClaudeCodeAdapterShape["sendTurn"] = (input) =>
+    const sendTurn: CursorAdapterShape["sendTurn"] = (input) =>
       Effect.gen(function* () {
         const context = yield* requireSession(input.threadId);
         if (context.turnState) {
@@ -922,25 +919,18 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
           return yield* new ProviderAdapterValidationError({
             provider: PROVIDER,
             operation: "sendTurn",
-            issue: "Claude CLI requires a non-empty prompt.",
+            issue: "Cursor CLI requires a non-empty prompt.",
           });
         }
 
         const turnId = TurnIdBrand.makeUnsafe(crypto.randomUUID());
         const selectedModel = input.model ?? context.session.model;
-        const permissionMode =
-          input.interactionMode === "plan" ? "plan" : context.defaultPermissionMode ?? "default";
 
         const args = [
-          "-p",
-          "--verbose",
+          "--print",
           "--output-format",
           "stream-json",
-          "--include-partial-messages",
-          "--permission-mode",
-          permissionMode,
-          ...(permissionMode === "bypassPermissions" ? ["--dangerously-skip-permissions"] : []),
-          ...(selectedModel ? ["--model", selectedModel] : []),
+          ...(selectedModel && selectedModel !== "auto" ? ["--model", selectedModel] : []),
           ...(context.providerThreadId ? ["--resume", context.providerThreadId] : []),
           ...(input.interactionMode === "plan"
             ? ["--append-system-prompt", GENERIC_PLAN_MODE_PROMPT]
@@ -960,12 +950,12 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
             new ProviderAdapterProcessError({
               provider: PROVIDER,
               threadId: input.threadId,
-              detail: toMessage(cause, "Failed to start Claude CLI turn process."),
+              detail: toMessage(cause, "Failed to start Cursor CLI turn process."),
               cause,
             }),
         });
 
-        const turnState: ClaudeTurnState = {
+        const turnState: CursorTurnState = {
           turnId,
           assistantItemId: crypto.randomUUID(),
           startedAt: nowIso(),
@@ -1013,7 +1003,7 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
         };
       });
 
-    const interruptTurn: ClaudeCodeAdapterShape["interruptTurn"] = (threadId, _turnId) =>
+    const interruptTurn: CursorAdapterShape["interruptTurn"] = (threadId, _turnId) =>
       Effect.gen(function* () {
         const context = yield* requireSession(threadId);
         if (!context.turnState) return;
@@ -1021,20 +1011,20 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
         context.turnState.child.kill("SIGTERM");
       });
 
-    const readThread: ClaudeCodeAdapterShape["readThread"] = (threadId) =>
+    const readThread: CursorAdapterShape["readThread"] = (threadId) =>
       Effect.gen(function* () {
         const context = yield* requireSession(threadId);
         return snapshotThread(context);
       });
 
-    const rollbackThread: ClaudeCodeAdapterShape["rollbackThread"] = (threadId, numTurns) =>
+    const rollbackThread: CursorAdapterShape["rollbackThread"] = (threadId, numTurns) =>
       Effect.gen(function* () {
         const context = yield* requireSession(threadId);
         if (context.turnState) {
           return yield* new ProviderAdapterRequestError({
             provider: PROVIDER,
             method: "thread/rollback",
-            detail: "Cannot roll back while a Claude turn is active.",
+            detail: "Cannot roll back while a Cursor turn is active.",
           });
         }
         const nextLength = Math.max(0, context.turns.length - numTurns);
@@ -1058,25 +1048,25 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
         return snapshotThread(context);
       });
 
-    const respondToRequest: ClaudeCodeAdapterShape["respondToRequest"] = (threadId, requestId, _decision) =>
+    const respondToRequest: CursorAdapterShape["respondToRequest"] = (threadId, requestId, _decision) =>
       Effect.fail(
         new ProviderAdapterRequestError({
           provider: PROVIDER,
           method: "request/respond",
-          detail: `Claude CLI approval response is not available for thread '${threadId}' and request '${requestId}' in this build.`,
+          detail: `Cursor CLI approval response is not available for thread '${threadId}' and request '${requestId}' in this build.`,
         }),
       );
 
-    const respondToUserInput: ClaudeCodeAdapterShape["respondToUserInput"] = (threadId, requestId, _answers) =>
+    const respondToUserInput: CursorAdapterShape["respondToUserInput"] = (threadId, requestId, _answers) =>
       Effect.fail(
         new ProviderAdapterRequestError({
           provider: PROVIDER,
           method: "user-input/respond",
-          detail: `Claude CLI structured user-input response is not available for thread '${threadId}' and request '${requestId}' in this build.`,
+          detail: `Cursor CLI structured user-input response is not available for thread '${threadId}' and request '${requestId}' in this build.`,
         }),
       );
 
-    const stopSessionInternal = (context: ClaudeSessionContext, emitExitEvent: boolean): void => {
+    const stopSessionInternal = (context: CursorSessionContext, emitExitEvent: boolean): void => {
       if (context.stopped) return;
       context.stopped = true;
       if (context.turnState && !context.turnState.completed) {
@@ -1105,22 +1095,22 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
       sessions.delete(context.session.threadId);
     };
 
-    const stopSession: ClaudeCodeAdapterShape["stopSession"] = (threadId) =>
+    const stopSession: CursorAdapterShape["stopSession"] = (threadId) =>
       Effect.gen(function* () {
         const context = yield* requireSession(threadId);
         stopSessionInternal(context, true);
       });
 
-    const listSessions: ClaudeCodeAdapterShape["listSessions"] = () =>
+    const listSessions: CursorAdapterShape["listSessions"] = () =>
       Effect.sync(() => Array.from(sessions.values(), ({ session }) => ({ ...session })));
 
-    const hasSession: ClaudeCodeAdapterShape["hasSession"] = (threadId) =>
+    const hasSession: CursorAdapterShape["hasSession"] = (threadId) =>
       Effect.sync(() => {
         const context = sessions.get(threadId);
         return context !== undefined && !context.stopped;
       });
 
-    const stopAll: ClaudeCodeAdapterShape["stopAll"] = () =>
+    const stopAll: CursorAdapterShape["stopAll"] = () =>
       Effect.sync(() => {
         for (const [, context] of sessions) {
           stopSessionInternal(context, true);
@@ -1138,7 +1128,7 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
     return {
       provider: PROVIDER,
       capabilities: {
-        sessionModelSwitch: "in-session",
+        sessionModelSwitch: "restart-session",
       },
       startSession,
       sendTurn,
@@ -1152,12 +1142,12 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
       hasSession,
       stopAll,
       streamEvents: Stream.fromQueue(runtimeEventQueue),
-    } satisfies ClaudeCodeAdapterShape;
+    } satisfies CursorAdapterShape;
   });
 }
 
-export const ClaudeCodeAdapterLive = Layer.effect(ClaudeCodeAdapter, makeClaudeCodeAdapter());
+export const CursorAdapterLive = Layer.effect(CursorAdapter, makeCursorAdapter());
 
-export function makeClaudeCodeAdapterLive(options?: ClaudeCodeAdapterLiveOptions) {
-  return Layer.effect(ClaudeCodeAdapter, makeClaudeCodeAdapter(options));
+export function makeCursorAdapterLive(options?: CursorAdapterLiveOptions) {
+  return Layer.effect(CursorAdapter, makeCursorAdapter(options));
 }

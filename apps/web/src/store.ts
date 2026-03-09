@@ -143,7 +143,7 @@ function toLegacySessionStatus(
 }
 
 function toLegacyProvider(providerName: string | null): ProviderKind {
-  if (providerName === "codex" || providerName === "claudeCode") {
+  if (providerName === "codex" || providerName === "claudeCode" || providerName === "cursor") {
     return providerName;
   }
   return "codex";
@@ -154,12 +154,17 @@ const CODEX_MODEL_SLUGS = new Set<string>(getModelOptions("codex").map((option) 
 const CLAUDE_MODEL_SLUGS = new Set<string>(
   getModelOptions("claudeCode").map((option) => option.slug),
 );
+const CURSOR_MODEL_SLUGS = new Set<string>(getModelOptions("cursor").map((option) => option.slug));
 
 function inferProviderForThreadModel(input: {
   readonly model: string;
   readonly sessionProviderName: string | null;
 }): ProviderKind {
-  if (input.sessionProviderName === "codex" || input.sessionProviderName === "claudeCode") {
+  if (
+    input.sessionProviderName === "codex" ||
+    input.sessionProviderName === "claudeCode" ||
+    input.sessionProviderName === "cursor"
+  ) {
     return input.sessionProviderName;
   }
   const normalizedCodex = normalizeModelSlug(input.model, "codex");
@@ -169,6 +174,10 @@ function inferProviderForThreadModel(input: {
   const normalizedClaude = normalizeModelSlug(input.model, "claudeCode");
   if (normalizedClaude && CLAUDE_MODEL_SLUGS.has(normalizedClaude)) {
     return "claudeCode";
+  }
+  const normalizedCursor = normalizeModelSlug(input.model, "cursor");
+  if (normalizedCursor && CURSOR_MODEL_SLUGS.has(normalizedCursor)) {
+    return "cursor";
   }
   return "codex";
 }

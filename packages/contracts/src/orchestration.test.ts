@@ -140,6 +140,29 @@ it.effect("preserves explicit provider and runtime mode in thread.turn.start", (
   }),
 );
 
+it.effect("accepts cursor as an explicit provider in thread.turn.start", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeThreadTurnStartCommand({
+      type: "thread.turn.start",
+      commandId: "cmd-turn-cursor",
+      threadId: "thread-1",
+      message: {
+        messageId: "msg-cursor",
+        role: "user",
+        text: "hello",
+        attachments: [],
+      },
+      provider: "cursor",
+      model: "auto",
+      runtimeMode: "approval-required",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.strictEqual(parsed.provider, "cursor");
+    assert.strictEqual(parsed.model, "auto");
+    assert.strictEqual(parsed.runtimeMode, "approval-required");
+  }),
+);
+
 it.effect("decodes thread.created runtime mode for historical events", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeThreadCreatedPayload({

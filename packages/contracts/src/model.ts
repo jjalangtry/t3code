@@ -15,9 +15,13 @@ export const ClaudeCodeModelOptions = Schema.Struct({
 });
 export type ClaudeCodeModelOptions = typeof ClaudeCodeModelOptions.Type;
 
+export const CursorModelOptions = Schema.Struct({});
+export type CursorModelOptions = typeof CursorModelOptions.Type;
+
 export const ProviderModelOptions = Schema.Struct({
   codex: Schema.optional(CodexModelOptions),
   claudeCode: Schema.optional(ClaudeCodeModelOptions),
+  cursor: Schema.optional(CursorModelOptions),
 });
 export type ProviderModelOptions = typeof ProviderModelOptions.Type;
 
@@ -39,6 +43,7 @@ export const MODEL_OPTIONS_BY_PROVIDER = {
     { slug: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" },
     { slug: "claude-haiku-4-5", name: "Claude Haiku 4.5" },
   ],
+  cursor: [{ slug: "auto", name: "Auto" }],
 } as const satisfies Record<ProviderKind, readonly ModelOption[]>;
 
 type BuiltInModelSlug = (typeof MODEL_OPTIONS_BY_PROVIDER)[ProviderKind][number]["slug"];
@@ -47,6 +52,7 @@ export type ModelSlug = BuiltInModelSlug | (string & {});
 export const DEFAULT_MODEL_BY_PROVIDER: Record<ProviderKind, ModelSlug> = {
   codex: "gpt-5.4",
   claudeCode: "claude-sonnet-4-6",
+  cursor: "auto",
 };
 
 export const MODEL_SLUG_ALIASES_BY_PROVIDER: Record<ProviderKind, Record<string, ModelSlug>> = {
@@ -71,14 +77,19 @@ export const MODEL_SLUG_ALIASES_BY_PROVIDER: Record<ProviderKind, Record<string,
     "claude-haiku-4.5": "claude-haiku-4-5",
     "claude-haiku-4-5-20251001": "claude-haiku-4-5",
   },
+  cursor: {
+    auto: "auto",
+  },
 };
 
 export const REASONING_EFFORT_OPTIONS_BY_PROVIDER = {
   codex: CODEX_REASONING_EFFORT_OPTIONS,
   claudeCode: [],
+  cursor: [],
 } as const satisfies Record<ProviderKind, readonly CodexReasoningEffort[]>;
 
 export const DEFAULT_REASONING_EFFORT_BY_PROVIDER = {
   codex: "high",
   claudeCode: null,
+  cursor: null,
 } as const satisfies Record<ProviderKind, CodexReasoningEffort | null>;

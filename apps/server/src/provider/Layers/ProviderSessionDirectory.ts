@@ -25,7 +25,7 @@ function decodeProviderKind(
   providerName: string,
   operation: string,
 ): Effect.Effect<ProviderKind, ProviderSessionDirectoryPersistenceError> {
-  if (providerName === "codex" || providerName === "claudeCode") {
+  if (providerName === "codex" || providerName === "claudeCode" || providerName === "cursor") {
     return Effect.succeed(providerName as ProviderKind);
   }
   return Effect.fail(
