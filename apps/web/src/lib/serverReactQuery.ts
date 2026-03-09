@@ -6,6 +6,8 @@ export const serverQueryKeys = {
   config: () => ["server", "config"] as const,
 };
 
+const SERVER_CONFIG_STALE_TIME_MS = 15_000;
+
 export function serverConfigQueryOptions() {
   return queryOptions({
     queryKey: serverQueryKeys.config(),
@@ -13,6 +15,7 @@ export function serverConfigQueryOptions() {
       const api = ensureNativeApi();
       return api.server.getConfig();
     },
-    staleTime: Infinity,
+    staleTime: SERVER_CONFIG_STALE_TIME_MS,
+    refetchOnWindowFocus: true,
   });
 }

@@ -1,8 +1,8 @@
 /**
- * ProviderHealth - Provider readiness snapshot service.
+ * ProviderHealth - Provider readiness status service.
  *
- * Owns startup-time provider health checks (install/auth reachability) and
- * exposes the cached results to transport layers.
+ * Performs provider install/auth reachability probes and exposes the latest
+ * results to transport layers.
  *
  * @module ProviderHealth
  */
@@ -12,7 +12,7 @@ import type { Effect } from "effect";
 
 export interface ProviderHealthShape {
   /**
-   * Read provider health statuses computed at server startup.
+   * Read provider health statuses on demand.
    */
   readonly getStatuses: Effect.Effect<ReadonlyArray<ServerProviderStatus>>;
 }

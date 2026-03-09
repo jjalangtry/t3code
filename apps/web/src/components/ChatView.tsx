@@ -214,6 +214,7 @@ import {
   type AppServiceTier,
   useAppSettings,
 } from "../appSettings";
+import { resolveEffectiveProviderStatus, resolveProviderAvailability } from "../providerHealth";
 import {
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
@@ -1246,13 +1247,20 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const providerStatuses = serverConfigQuery.data?.providers ?? EMPTY_PROVIDER_STATUSES;
   const providerOptions = useMemo(
     () =>
-      PROVIDER_OPTIONS.map((option) => ({
-        ...option,
-        available:
-          providerStatuses.find((status) => status.provider === option.value)?.available ??
+      PROVIDER_OPTIONS.map((option) => {
+        const available = resolveProviderAvailability(
+          option.value,
+          providerStatuses,
+          settings,
           option.available,
-      })),
-    [providerStatuses],
+        );
+        return {
+          value: option.value,
+          label: option.label,
+          available,
+        };
+      }),
+    [providerStatuses, settings],
   );
   const availableProviderOptions = useMemo(
     () => providerOptions.filter((option) => option.available),
@@ -1359,8 +1367,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const availableEditors = serverConfigQuery.data?.availableEditors ?? EMPTY_AVAILABLE_EDITORS;
   const activeProvider = activeThread?.session?.provider ?? "codex";
   const activeProviderStatus = useMemo(
-    () => providerStatuses.find((status) => status.provider === activeProvider) ?? null,
-    [activeProvider, providerStatuses],
+    () => resolveEffectiveProviderStatus(activeProvider, providerStatuses, settings),
+    [activeProvider, providerStatuses, settings],
   );
   const activeProjectCwd = activeProject?.cwd ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
@@ -2038,6 +2046,41 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
     planSidebarDismissedForTurnRef.current = null;
   }, [activeThread?.id]);
+
+  const latestPlanSignal = activePlan
+    ? `active:${activePlan.turnId}:${activePlan.createdAt}`
+    : activeProposedPlan
+      ? `proposed:${activeProposedPlan.turnId}:${activeProposedPlan.createdAt}`
+      : null;
+  const latestPlanTurnKey = activePlan?.turnId ?? activeProposedPlan?.turnId ?? null;
+  const seenPlanSignalByThreadRef = useRef<Record<string, string | null>>({});
+  const initializedPlanSignalThreadRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!activeThread?.id) {
+      return;
+    }
+    if (initializedPlanSignalThreadRef.current === activeThread.id) {
+      return;
+    }
+    initializedPlanSignalThreadRef.current = activeThread.id;
+    seenPlanSignalByThreadRef.current[activeThread.id] = latestPlanSignal;
+  }, [activeThread?.id, latestPlanSignal]);
+
+  useEffect(() => {
+    if (!activeThread?.id || !latestPlanSignal || !latestPlanTurnKey) {
+      return;
+    }
+    const previousSignal = seenPlanSignalByThreadRef.current[activeThread.id];
+    if (previousSignal === latestPlanSignal) {
+      return;
+    }
+    seenPlanSignalByThreadRef.current[activeThread.id] = latestPlanSignal;
+    if (planSidebarDismissedForTurnRef.current === latestPlanTurnKey) {
+      return;
+    }
+    setPlanSidebarOpen(true);
+  }, [activeThread?.id, latestPlanSignal, latestPlanTurnKey]);
 
 
 
