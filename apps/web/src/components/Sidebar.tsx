@@ -2,8 +2,12 @@ import {
   ChevronRightIcon,
   FolderIcon,
   GitPullRequestIcon,
+  MoonIcon,
+  PanelBottomIcon,
+  PanelRightIcon,
   RocketIcon,
   SquarePenIcon,
+  SunIcon,
   TerminalIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -40,6 +44,7 @@ import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { readNativeApi } from "../nativeApi";
 import { type DraftThreadEnvMode, useComposerDraftStore } from "../composerDraftStore";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
+import { useTheme } from "../hooks/useTheme";
 import { toastManager } from "./ui/toast";
 import {
   getDesktopUpdateActionError,
@@ -282,6 +287,8 @@ export default function Sidebar() {
   const getDraftThread = useComposerDraftStore((store) => store.getDraftThread);
   const terminalStateByThreadId = useTerminalStateStore((state) => state.terminalStateByThreadId);
   const clearTerminalState = useTerminalStateStore((state) => state.clearTerminalState);
+  const terminalPosition = useTerminalStateStore((state) => state.terminalPosition);
+  const setTerminalPosition = useTerminalStateStore((state) => state.setTerminalPosition);
   const setProjectDraftThreadId = useComposerDraftStore((store) => store.setProjectDraftThreadId);
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const clearProjectDraftThreadId = useComposerDraftStore(
@@ -292,6 +299,7 @@ export default function Sidebar() {
   );
   const navigate = useNavigate();
   const { settings: appSettings } = useAppSettings();
+  const { resolvedTheme, setTheme } = useTheme();
   const routeThreadId = useParams({
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
@@ -362,6 +370,10 @@ export default function Sidebar() {
   const projectCwdById = useMemo(
     () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
     [projects],
+  );
+  const activeTerminalState = useMemo(
+    () => (routeThreadId ? selectThreadTerminalState(terminalStateByThreadId, routeThreadId) : null),
+    [routeThreadId, terminalStateByThreadId],
   );
   const threadGitTargets = useMemo(
     () =>
@@ -1027,6 +1039,17 @@ export default function Sidebar() {
     }
   }, [desktopUpdateButtonAction, desktopUpdateButtonDisabled, desktopUpdateState]);
 
+  const toggleTheme = useCallback(() => {
+    setTheme(resolvedTheme === "dark" ? "light" : "dark");
+  }, [resolvedTheme, setTheme]);
+
+  const themeToggleTooltip =
+    resolvedTheme === "dark" ? "Switch app to light mode" : "Switch app to dark mode";
+  const terminalPositionTooltip =
+    terminalPosition === "right"
+      ? "Move terminal to bottom"
+      : "Move terminal to right sidebar";
+
   const expandThreadListForProject = useCallback((projectId: ProjectId) => {
     setExpandedThreadListsByProject((current) => {
       if (current.has(projectId)) return current;
@@ -1060,36 +1083,85 @@ export default function Sidebar() {
     </div>
   );
 
+  const headerActions = (
+    <div className="ml-auto flex items-center gap-1">
+      {activeTerminalState?.terminalOpen && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label={terminalPositionTooltip}
+                className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                onClick={() => {
+                  setTerminalPosition(terminalPosition === "right" ? "bottom" : "right");
+                }}
+              >
+                {terminalPosition === "right" ? (
+                  <PanelBottomIcon className="size-3.5" />
+                ) : (
+                  <PanelRightIcon className="size-3.5" />
+                )}
+              </button>
+            }
+          />
+          <TooltipPopup side="bottom">{terminalPositionTooltip}</TooltipPopup>
+        </Tooltip>
+      )}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              aria-label={themeToggleTooltip}
+              className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              onClick={toggleTheme}
+            >
+              {resolvedTheme === "dark" ? (
+                <SunIcon className="size-3.5" />
+              ) : (
+                <MoonIcon className="size-3.5" />
+              )}
+            </button>
+          }
+        />
+        <TooltipPopup side="bottom">{themeToggleTooltip}</TooltipPopup>
+      </Tooltip>
+      {showDesktopUpdateButton && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label={desktopUpdateTooltip}
+                aria-disabled={desktopUpdateButtonDisabled || undefined}
+                disabled={desktopUpdateButtonDisabled}
+                className={`inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors ${desktopUpdateButtonInteractivityClasses} ${desktopUpdateButtonClasses}`}
+                onClick={handleDesktopUpdateButtonClick}
+              >
+                <RocketIcon className="size-3.5" />
+              </button>
+            }
+          />
+          <TooltipPopup side="bottom">{desktopUpdateTooltip}</TooltipPopup>
+        </Tooltip>
+      )}
+    </div>
+  );
+
   return (
     <>
       {isElectron ? (
         <>
           <SidebarHeader className="drag-region h-[52px] flex-row items-center gap-2 px-4 py-0 pl-[82px]">
             {wordmark}
-            {showDesktopUpdateButton && (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <button
-                      type="button"
-                      aria-label={desktopUpdateTooltip}
-                      aria-disabled={desktopUpdateButtonDisabled || undefined}
-                      disabled={desktopUpdateButtonDisabled}
-                      className={`inline-flex size-7 ml-auto mt-2 items-center justify-center rounded-md text-muted-foreground transition-colors ${desktopUpdateButtonInteractivityClasses} ${desktopUpdateButtonClasses}`}
-                      onClick={handleDesktopUpdateButtonClick}
-                    >
-                      <RocketIcon className="size-3.5" />
-                    </button>
-                  }
-                />
-                <TooltipPopup side="bottom">{desktopUpdateTooltip}</TooltipPopup>
-              </Tooltip>
-            )}
+            {headerActions}
           </SidebarHeader>
         </>
       ) : (
-        <SidebarHeader className="gap-3 px-3 py-2 sm:gap-2.5 sm:px-4 sm:py-3">
+        <SidebarHeader className="flex-row items-center gap-3 px-3 py-2 sm:gap-2.5 sm:px-4 sm:py-3">
           {wordmark}
+          {headerActions}
         </SidebarHeader>
       )}
 
