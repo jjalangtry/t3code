@@ -12,6 +12,7 @@ final class SessionStore {
     var serverURL: String = ""
     var authToken: String = ""
     var isConnected = false
+    var isConnecting = false
     var connectionError: String?
 
     // Welcome
@@ -32,6 +33,7 @@ final class SessionStore {
 
     private var transport: WebSocketTransport?
     private var api: T3CodeAPI?
+    private var connectTask: Task<Void, Never>?
 
     // MARK: - Persistence
 
@@ -48,35 +50,49 @@ final class SessionStore {
         UserDefaults.standard.set(authToken, forKey: Self.tokenKey)
     }
 
+    // MARK: - URL Normalization
+
+    /// Builds the WebSocket URL from user input.
+    /// Handles bare hostnames like "code.jjalangtry.com", full HTTPS URLs, etc.
+    private func buildWebSocketURL() -> URL? {
+        var raw = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return nil }
+
+        // If no scheme, prepend https://
+        if !raw.contains("://") {
+            raw = "https://\(raw)"
+        }
+
+        guard var components = URLComponents(string: raw) else { return nil }
+
+        // Convert HTTP(S) → WS(S)
+        switch components.scheme {
+        case "https": components.scheme = "wss"
+        case "http": components.scheme = "ws"
+        case "ws", "wss": break
+        default: components.scheme = "wss"
+        }
+
+        // Append auth token
+        if !authToken.isEmpty {
+            var queryItems = components.queryItems ?? []
+            queryItems.append(URLQueryItem(name: "token", value: authToken))
+            components.queryItems = queryItems
+        }
+
+        return components.url
+    }
+
     // MARK: - Connection
 
     func connect() {
         disconnect()
         connectionError = nil
+        isConnecting = true
 
-        guard let baseURL = URL(string: serverURL) else {
+        guard let wsURL = buildWebSocketURL() else {
             connectionError = "Invalid URL"
-            return
-        }
-
-        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
-
-        if components?.scheme == "https" {
-            components?.scheme = "wss"
-        } else if components?.scheme == "http" {
-            components?.scheme = "ws"
-        } else if components?.scheme != "ws" && components?.scheme != "wss" {
-            components?.scheme = "wss"
-        }
-
-        if !authToken.isEmpty {
-            var queryItems = components?.queryItems ?? []
-            queryItems.append(URLQueryItem(name: "token", value: authToken))
-            components?.queryItems = queryItems
-        }
-
-        guard let wsURL = components?.url else {
-            connectionError = "Could not build WebSocket URL"
+            isConnecting = false
             return
         }
 
@@ -87,28 +103,38 @@ final class SessionStore {
         transport = newTransport
         api = newApi
 
-        isConnected = true
-
-        Task {
+        connectTask = Task {
+            // Set up push listeners before connecting so we don't miss the welcome message
             await setupListeners(api: newApi)
-            await newTransport.connect()
 
             do {
+                // Wait for actual WebSocket handshake
+                try await newTransport.connect()
+
+                // Connection is live — fetch initial state
                 let snapshot: OrchestrationReadModel = try await newApi.getSnapshot()
                 self.applySnapshot(snapshot)
+                self.isConnected = true
+                self.isConnecting = false
             } catch {
                 self.connectionError = error.localizedDescription
+                self.isConnecting = false
+                self.isConnected = false
             }
         }
     }
 
     func disconnect() {
+        connectTask?.cancel()
+        connectTask = nil
+
         Task {
             await transport?.disconnect()
         }
         transport = nil
         api = nil
         isConnected = false
+        isConnecting = false
         welcome = nil
         projects = []
         threads = []
