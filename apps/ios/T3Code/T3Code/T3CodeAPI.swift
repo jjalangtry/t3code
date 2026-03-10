@@ -139,7 +139,7 @@ final class T3CodeAPI {
 
     // MARK: - Push event subscriptions
 
-    func onDomainEvent(_ handler: @escaping @MainActor (OrchestrationEvent) -> Void) {
+    func onDomainEvent(_ handler: @escaping @Sendable @MainActor (OrchestrationEvent) -> Void) {
         transport.subscribe("orchestration.domainEvent") { data in
             guard let dict = data as? [String: Any] else { return }
             guard let jsonData = try? JSONSerialization.data(withJSONObject: dict),
@@ -148,7 +148,7 @@ final class T3CodeAPI {
         }
     }
 
-    func onWelcome(_ handler: @escaping @MainActor (WsWelcomePayload) -> Void) {
+    func onWelcome(_ handler: @escaping @Sendable @MainActor (WsWelcomePayload) -> Void) {
         transport.subscribe("server.welcome") { data in
             guard let dict = data as? [String: Any] else { return }
             guard let jsonData = try? JSONSerialization.data(withJSONObject: dict),
@@ -157,7 +157,7 @@ final class T3CodeAPI {
         }
     }
 
-    func onServerConfigUpdated(_ handler: @escaping @MainActor (ServerConfigUpdatedPayload) -> Void) {
+    func onServerConfigUpdated(_ handler: @escaping @Sendable @MainActor (ServerConfigUpdatedPayload) -> Void) {
         transport.subscribe("server.configUpdated") { data in
             guard let dict = data as? [String: Any] else { return }
             guard let jsonData = try? JSONSerialization.data(withJSONObject: dict),
