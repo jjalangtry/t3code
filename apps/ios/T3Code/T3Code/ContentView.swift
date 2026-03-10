@@ -1,24 +1,27 @@
-//
-//  ContentView.swift
-//  T3Code
-//
-//  Created by Jakob Langtry on 3/10/26.
-//
-
 import SwiftUI
 
 struct ContentView: View {
-    var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
-        }
-        .padding()
-    }
-}
+    @EnvironmentObject private var store: SessionStore
 
-#Preview {
-    ContentView()
+    var body: some View {
+        if store.isConnected {
+            NavigationSplitView {
+                SidebarView()
+            } detail: {
+                if let threadId = store.selectedThreadId {
+                    ThreadView(threadId: threadId)
+                } else {
+                    VStack(spacing: 12) {
+                        Image(systemName: "message")
+                            .font(.largeTitle)
+                            .foregroundStyle(.tertiary)
+                        Text("Select a thread")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        } else {
+            ConnectView()
+        }
+    }
 }
