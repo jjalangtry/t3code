@@ -182,15 +182,18 @@ final class SessionStore: ObservableObject {
 
     private func setupListeners(api: T3CodeAPI) {
         api.onWelcome { [weak self] payload in
-            self?.welcome = payload
+            guard let self else { return }
+            self.welcome = payload
         }
 
         api.onServerConfigUpdated { [weak self] payload in
-            self?.providers = payload.providers
+            guard let self else { return }
+            self.providers = payload.providers
         }
 
         api.onDomainEvent { [weak self] event in
-            self?.handleDomainEvent(event)
+            guard let self else { return }
+            self.handleDomainEvent(event)
         }
     }
 
@@ -208,17 +211,13 @@ final class SessionStore: ObservableObject {
             guard let api = self.api else { return }
 
             // Handle streaming deltas locally for responsiveness
-            let payload = event.payload.value as? [String: Any]
-
             switch event.type {
             case "thread.message-sent":
-                // A new message was sent - check if streaming
-                if let streaming = payload?["streaming"] as? Bool, streaming,
-                   let messageId = payload?["messageId"] as? String {
+                if let streaming = event.payload["streaming"]?.boolValue, streaming,
+                   let messageId = event.payload["messageId"]?.stringValue {
                     self.streamingMessageId = messageId
-                    self.streamingText = payload?["text"] as? String ?? ""
+                    self.streamingText = event.payload["text"]?.stringValue ?? ""
                 }
-
             default:
                 break
             }

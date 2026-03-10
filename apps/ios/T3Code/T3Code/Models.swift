@@ -225,57 +225,77 @@ struct OrchestrationEvent: Codable {
 
 // MARK: - AnyCodable (generic JSON wrapper)
 
-struct AnyCodable: Codable {
-    let value: Any
-
-    init(_ value: Any) {
-        self.value = value
-    }
+enum JSONValue: Codable, Sendable {
+    case null
+    case bool(Bool)
+    case int(Int)
+    case double(Double)
+    case string(String)
+    case array([JSONValue])
+    case object([String: JSONValue])
 
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         if container.decodeNil() {
-            value = NSNull()
+            self = .null
         } else if let bool = try? container.decode(Bool.self) {
-            value = bool
+            self = .bool(bool)
         } else if let int = try? container.decode(Int.self) {
-            value = int
+            self = .int(int)
         } else if let double = try? container.decode(Double.self) {
-            value = double
+            self = .double(double)
         } else if let string = try? container.decode(String.self) {
-            value = string
-        } else if let array = try? container.decode([AnyCodable].self) {
-            value = array.map(\.value)
-        } else if let dict = try? container.decode([String: AnyCodable].self) {
-            value = dict.mapValues(\.value)
+            self = .string(string)
+        } else if let array = try? container.decode([JSONValue].self) {
+            self = .array(array)
+        } else if let dict = try? container.decode([String: JSONValue].self) {
+            self = .object(dict)
         } else {
-            value = NSNull()
+            self = .null
         }
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
-        switch value {
-        case is NSNull:
-            try container.encodeNil()
-        case let bool as Bool:
-            try container.encode(bool)
-        case let int as Int:
-            try container.encode(int)
-        case let double as Double:
-            try container.encode(double)
-        case let string as String:
-            try container.encode(string)
-        case let array as [Any]:
-            try container.encode(array.map { AnyCodable($0) })
-        case let dict as [String: Any]:
-            try container.encode(dict.mapValues { AnyCodable($0) })
-        default:
-            try container.encodeNil()
+        switch self {
+        case .null: try container.encodeNil()
+        case .bool(let v): try container.encode(v)
+        case .int(let v): try container.encode(v)
+        case .double(let v): try container.encode(v)
+        case .string(let v): try container.encode(v)
+        case .array(let v): try container.encode(v)
+        case .object(let v): try container.encode(v)
         }
     }
 
-    subscript(key: String) -> Any? {
-        (value as? [String: Any])?[key]
+    /// Convert to untyped Any for interop with JSONSerialization-based code
+    var anyValue: Any {
+        switch self {
+        case .null: return NSNull()
+        case .bool(let v): return v
+        case .int(let v): return v
+        case .double(let v): return v
+        case .string(let v): return v
+        case .array(let v): return v.map(\.anyValue)
+        case .object(let v): return v.mapValues(\.anyValue)
+        }
+    }
+
+    subscript(key: String) -> JSONValue? {
+        if case .object(let dict) = self { return dict[key] }
+        return nil
+    }
+
+    var stringValue: String? {
+        if case .string(let s) = self { return s }
+        return nil
+    }
+
+    var boolValue: Bool? {
+        if case .bool(let b) = self { return b }
+        return nil
     }
 }
+
+// Legacy alias
+typealias AnyCodable = JSONValue

@@ -42,7 +42,7 @@ struct ThreadView: View {
                     }
                     .padding()
                 }
-                .onChange(of: thread?.messages.count) {
+                .onChange(of: thread?.messages.count ?? 0) { _, _ in
                     if let lastId = thread?.messages.last?.id {
                         withAnimation {
                             proxy.scrollTo(lastId, anchor: .bottom)
@@ -264,8 +264,7 @@ struct ActivityLogView: View {
     }
 
     private func extractDetail(from activity: ThreadActivity) -> String? {
-        guard let payload = activity.payload?.value as? [String: Any],
-              let detail = payload["detail"] as? String,
+        guard let detail = activity.payload?["detail"]?.stringValue,
               !detail.isEmpty else {
             return nil
         }
