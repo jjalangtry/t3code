@@ -1,30 +1,11 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { Option, Schema } from "effect";
-import { type ProviderKind, type ProviderServiceTier } from "@t3tools/contracts";
+import { type ProviderKind } from "@t3tools/contracts";
 import { getDefaultModel, getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
 
 const APP_SETTINGS_STORAGE_KEY = "t3code:app-settings:v1";
 const MAX_CUSTOM_MODEL_COUNT = 32;
 export const MAX_CUSTOM_MODEL_LENGTH = 256;
-export const APP_SERVICE_TIER_OPTIONS = [
-  {
-    value: "auto",
-    label: "Automatic",
-    description: "Use Codex defaults without forcing a service tier.",
-  },
-  {
-    value: "fast",
-    label: "Fast",
-    description: "Request the fast service tier when the model supports it.",
-  },
-  {
-    value: "flex",
-    label: "Flex",
-    description: "Request the flex service tier when the model supports it.",
-  },
-] as const;
-export type AppServiceTier = (typeof APP_SERVICE_TIER_OPTIONS)[number]["value"];
-const AppServiceTierSchema = Schema.Literals(["auto", "fast", "flex"]);
 export const APP_CLAUDE_PERMISSION_MODE_OPTIONS = [
   {
     value: "inherit",
@@ -80,7 +61,6 @@ export const APP_CLAUDE_THINKING_MODE_OPTIONS = [
 ] as const;
 export type AppClaudeThinkingMode = (typeof APP_CLAUDE_THINKING_MODE_OPTIONS)[number]["value"];
 const AppClaudeThinkingModeSchema = Schema.Literals(["inherit", "on", "off"]);
-const MODELS_WITH_FAST_SUPPORT = new Set(["gpt-5.4"]);
 const BUILT_IN_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>> = {
   codex: new Set(getModelOptions("codex").map((option) => option.slug)),
   claudeCode: new Set(getModelOptions("claudeCode").map((option) => option.slug)),
@@ -113,7 +93,6 @@ const AppSettingsSchema = Schema.Struct({
   enableAssistantStreaming: Schema.Boolean.pipe(
     Schema.withConstructorDefault(() => Option.some(false)),
   ),
-  codexServiceTier: AppServiceTierSchema.pipe(Schema.withConstructorDefault(() => Option.some("auto"))),
   customCodexModels: Schema.Array(Schema.String).pipe(
     Schema.withConstructorDefault(() => Option.some([])),
   ),
@@ -129,10 +108,6 @@ export interface AppModelOption {
   slug: string;
   name: string;
   isCustom: boolean;
-}
-
-export function resolveAppServiceTier(serviceTier: AppServiceTier): ProviderServiceTier | null {
-  return serviceTier === "auto" ? null : serviceTier;
 }
 
 export function resolveAppClaudePermissionMode(
@@ -167,19 +142,6 @@ export function resolveAppClaudeMaxThinkingTokens(
   const parsed = Number.parseInt(trimmed, 10);
   return Number.isSafeInteger(parsed) ? parsed : undefined;
 }
-
-export function shouldShowFastTierIcon(
-  model: string | null | undefined,
-  serviceTier: AppServiceTier,
-): boolean {
-  const normalizedModel = normalizeModelSlug(model);
-  return (
-    resolveAppServiceTier(serviceTier) === "fast" &&
-    normalizedModel !== null &&
-    MODELS_WITH_FAST_SUPPORT.has(normalizedModel)
-  );
-}
-
 const DEFAULT_APP_SETTINGS = AppSettingsSchema.makeUnsafe({});
 
 let listeners: Array<() => void> = [];
