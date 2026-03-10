@@ -11,6 +11,9 @@ import type { Duplex } from "node:stream";
 
 import Mime from "@effect/platform-node/Mime";
 import {
+  AppAuthErrorResponse,
+  AppAuthLoginInput as AppAuthLoginInputSchema,
+  type AppAuthLoginInput as AppAuthLoginInputPayload,
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   type ClientOrchestrationCommand,
@@ -74,6 +77,7 @@ import {
 import { parseBase64DataUrl } from "./imageMime.ts";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService.ts";
 import { expandHomePath } from "./os-jank.ts";
+import { AppAuthManager } from "./appAuth.ts";
 
 /**
  * ServerShape - Service API for server lifecycle control.
@@ -106,6 +110,43 @@ const isServerNotRunningError = (error: unknown): boolean => {
     maybeCode === "ERR_SERVER_NOT_RUNNING" || error.message.toLowerCase().includes("not running")
   );
 };
+
+const AUTH_LOGIN_PATH = "/api/auth/login";
+const AUTH_LOGOUT_PATH = "/api/auth/logout";
+const AUTH_SESSION_PATH = "/api/auth/session";
+const PROJECT_FAVICON_PATH = "/api/project-favicon";
+const AUTH_CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "Authorization, Content-Type",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Max-Age": "600",
+  "Cache-Control": "no-store",
+} as const;
+const decodeAuthLoginInput = Schema.decodeUnknownSync(AppAuthLoginInputSchema);
+const encodeAuthErrorResponse = Schema.encodeSync(AppAuthErrorResponse);
+
+function readRequestBody(req: http.IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+
+    req.on("data", (chunk) => {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      totalBytes += buffer.byteLength;
+      if (totalBytes > 64 * 1024) {
+        reject(new Error("Request body too large."));
+        req.destroy();
+        return;
+      }
+      chunks.push(buffer);
+    });
+
+    req.on("end", () => {
+      resolve(Buffer.concat(chunks).toString("utf8"));
+    });
+    req.on("error", reject);
+  });
+}
 
 function rejectUpgrade(socket: Duplex, statusCode: number, message: string): void {
   socket.end(
@@ -261,10 +302,18 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     staticDir,
     devUrl,
     authToken,
+    appAuthUsername,
+    appAuthPassword,
+    appAuthSessionTtlDays,
     host,
     logWebSocketEvents,
     autoBootstrapProjectFromCwd,
   } = serverConfig;
+  const appAuth = new AppAuthManager({
+    username: appAuthUsername,
+    password: appAuthPassword,
+    sessionTtlDays: appAuthSessionTtlDays,
+  });
   const availableEditors = resolveAvailableEditors();
 
   const gitManager = yield* GitManager;
@@ -435,6 +484,19 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     } satisfies OrchestrationCommand;
   });
 
+  const readAppAuthSessionToken = (requestUrl: string | URL | undefined, headers: http.IncomingHttpHeaders) =>
+    appAuth.readSessionToken(requestUrl, headers);
+
+  const isAppAuthAuthorized = (
+    requestUrl: string | URL | undefined,
+    headers: http.IncomingHttpHeaders,
+  ): boolean => {
+    if (!appAuth.isEnabled) {
+      return true;
+    }
+    return appAuth.validateSessionToken(readAppAuthSessionToken(requestUrl, headers)) !== null;
+  };
+
   // HTTP server — serves static files or redirects to Vite dev server
   const httpServer = http.createServer((req, res) => {
     const respond = (
@@ -446,14 +508,116 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
       res.end(body);
     };
 
-    void Effect.runPromise(
+      void Effect.runPromise(
       Effect.gen(function* () {
         const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+        const requestSessionToken = readAppAuthSessionToken(url, req.headers);
+
+        if (req.method === "OPTIONS" && url.pathname.startsWith("/api/auth/")) {
+          respond(204, AUTH_CORS_HEADERS);
+          return;
+        }
+
+        if (url.pathname === AUTH_SESSION_PATH) {
+          respond(
+            200,
+            {
+              ...AUTH_CORS_HEADERS,
+              "Content-Type": "application/json; charset=utf-8",
+            },
+            JSON.stringify(appAuth.readSession(requestSessionToken)),
+          );
+          return;
+        }
+
+        if (url.pathname === AUTH_LOGIN_PATH) {
+          if (req.method !== "POST") {
+            respond(405, AUTH_CORS_HEADERS);
+            return;
+          }
+          if (!appAuth.isEnabled) {
+            respond(
+              404,
+              {
+                ...AUTH_CORS_HEADERS,
+                "Content-Type": "application/json; charset=utf-8",
+              },
+              JSON.stringify(encodeAuthErrorResponse({ message: "App auth is disabled." })),
+            );
+            return;
+          }
+
+          const requestBody = yield* Effect.promise(() => readRequestBody(req)).pipe(
+            Effect.catch(() => Effect.succeed("")),
+          );
+          const loginInputExit = yield* Effect.sync(() =>
+            decodeAuthLoginInput(JSON.parse(requestBody)),
+          ).pipe(Effect.exit);
+          if (loginInputExit._tag === "Failure") {
+            respond(
+              400,
+              {
+                ...AUTH_CORS_HEADERS,
+                "Content-Type": "application/json; charset=utf-8",
+              },
+              JSON.stringify(
+                encodeAuthErrorResponse({ message: "Invalid login request payload." }),
+              ),
+            );
+            return;
+          }
+          const loginInput: AppAuthLoginInputPayload = loginInputExit.value;
+
+          const loginResult = appAuth.login(loginInput);
+          if (!loginResult) {
+            respond(
+              401,
+              {
+                ...AUTH_CORS_HEADERS,
+                "Content-Type": "application/json; charset=utf-8",
+              },
+              JSON.stringify(
+                encodeAuthErrorResponse({ message: "Invalid username or password." }),
+              ),
+            );
+            return;
+          }
+
+          respond(
+            200,
+            {
+              ...AUTH_CORS_HEADERS,
+              "Content-Type": "application/json; charset=utf-8",
+            },
+            JSON.stringify(loginResult),
+          );
+          return;
+        }
+
+        if (url.pathname === AUTH_LOGOUT_PATH) {
+          if (req.method !== "POST") {
+            respond(405, AUTH_CORS_HEADERS);
+            return;
+          }
+          appAuth.logout(requestSessionToken);
+          respond(204, AUTH_CORS_HEADERS);
+          return;
+        }
+
+        if (url.pathname === PROJECT_FAVICON_PATH && !isAppAuthAuthorized(url, req.headers)) {
+          respond(401, { "Content-Type": "text/plain", "Cache-Control": "no-store" }, "Unauthorized");
+          return;
+        }
+
         if (tryHandleProjectFaviconRequest(url, res)) {
           return;
         }
 
         if (url.pathname.startsWith(ATTACHMENTS_ROUTE_PREFIX)) {
+          if (!isAppAuthAuthorized(url, req.headers)) {
+            respond(401, { "Content-Type": "text/plain", "Cache-Control": "no-store" }, "Unauthorized");
+            return;
+          }
           const rawRelativePath = url.pathname.slice(ATTACHMENTS_ROUTE_PREFIX.length);
           const normalizedRelativePath = normalizeAttachmentRelativePath(rawRelativePath);
           if (!normalizedRelativePath) {
@@ -988,20 +1152,23 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
   httpServer.on("upgrade", (request, socket, head) => {
     socket.on("error", () => {}); // Prevent unhandled `EPIPE`/`ECONNRESET` from crashing the process if the client disconnects mid-handshake
 
-    if (authToken) {
-      let providedToken: string | null = null;
-      try {
-        const url = new URL(request.url ?? "/", `http://localhost:${port}`);
-        providedToken = url.searchParams.get("token");
-      } catch {
-        rejectUpgrade(socket, 400, "Invalid WebSocket URL");
-        return;
-      }
+    let requestUrl: URL;
+    try {
+      requestUrl = new URL(request.url ?? "/", `http://localhost:${port}`);
+    } catch {
+      rejectUpgrade(socket, 400, "Invalid WebSocket URL");
+      return;
+    }
 
-      if (providedToken !== authToken) {
-        rejectUpgrade(socket, 401, "Unauthorized WebSocket connection");
-        return;
-      }
+    const providedToken = requestUrl.searchParams.get("token");
+    const tokenAuthorized = authToken ? providedToken === authToken : false;
+    const sessionAuthorized = appAuth.isEnabled
+      ? isAppAuthAuthorized(requestUrl, request.headers)
+      : false;
+
+    if ((authToken || appAuth.isEnabled) && !tokenAuthorized && !sessionAuthorized) {
+      rejectUpgrade(socket, 401, "Unauthorized WebSocket connection");
+      return;
     }
 
     wss.handleUpgrade(request, socket, head, (ws) => {

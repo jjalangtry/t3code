@@ -112,6 +112,19 @@ const CliEnvConfig = Config.all({
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
+  appAuthUsername: Config.string("T3CODE_APP_AUTH_USERNAME").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  appAuthPassword: Config.string("T3CODE_APP_AUTH_PASSWORD").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  appAuthSessionTtlDays: Config.number("T3CODE_APP_AUTH_SESSION_TTL_DAYS").pipe(
+    Config.option,
+    Config.map(Option.map((value) => Math.trunc(value))),
+    Config.map(Option.getOrUndefined),
+  ),
   autoBootstrapProjectFromCwd: Config.boolean("T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),
@@ -158,6 +171,15 @@ const ServerConfigLive = (input: CliInput) =>
       const devUrl = Option.getOrElse(input.devUrl, () => env.devUrl);
       const noBrowser = resolveBooleanFlag(input.noBrowser, env.noBrowser ?? mode === "desktop");
       const authToken = Option.getOrUndefined(input.authToken) ?? env.authToken;
+      const appAuthUsername = env.appAuthUsername ?? undefined;
+      const appAuthPassword = env.appAuthPassword ?? undefined;
+      if ((appAuthUsername ? 1 : 0) !== (appAuthPassword ? 1 : 0)) {
+        return yield* new StartupError({
+          message:
+            "T3CODE_APP_AUTH_USERNAME and T3CODE_APP_AUTH_PASSWORD must be configured together.",
+        });
+      }
+      const appAuthSessionTtlDays = Math.max(1, env.appAuthSessionTtlDays ?? 30);
       const autoBootstrapProjectFromCwd = resolveBooleanFlag(
         input.autoBootstrapProjectFromCwd,
         env.autoBootstrapProjectFromCwd ?? false,
@@ -185,6 +207,9 @@ const ServerConfigLive = (input: CliInput) =>
         devUrl,
         noBrowser,
         authToken,
+        appAuthUsername,
+        appAuthPassword,
+        appAuthSessionTtlDays,
         autoBootstrapProjectFromCwd,
         logWebSocketEvents,
       } satisfies ServerConfigShape;

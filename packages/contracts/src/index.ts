@@ -1,5 +1,6 @@
 export * from "./baseSchemas";
 export * from "./ipc";
+export * from "./auth";
 export * from "./terminal";
 export * from "./provider";
 export * from "./providerOptions";

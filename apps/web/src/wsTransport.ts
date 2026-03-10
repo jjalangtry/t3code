@@ -1,6 +1,8 @@
 import { WebSocketResponse, WsPush, WsResponse } from "@t3tools/contracts";
 import { Cause, Schema } from "effect";
 
+import { readStoredAppAuthSessionToken } from "./appAuth";
+
 type PushListener = (data: unknown) => void;
 
 interface PendingRequest {
@@ -46,10 +48,15 @@ function resolveDefaultWsUrl(): string {
       : `${window.location.hostname}:${window.location.port}`;
   const injectedToken = window.__T3CODE_WS_TOKEN__;
   const baseUrl = `${protocol}//${host}`;
-  if (!injectedToken || injectedToken.length === 0) {
-    return baseUrl;
+  const url = new URL(baseUrl);
+  if (injectedToken && injectedToken.length > 0) {
+    url.searchParams.set("token", injectedToken);
   }
-  return `${baseUrl}/?token=${encodeURIComponent(injectedToken)}`;
+  const authSessionToken = readStoredAppAuthSessionToken();
+  if (authSessionToken && authSessionToken.length > 0) {
+    url.searchParams.set("auth_session", authSessionToken);
+  }
+  return url.toString();
 }
 
 export class WsTransport {

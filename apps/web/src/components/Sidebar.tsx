@@ -55,6 +55,7 @@ import {
   resolveProjectSearchPath,
 } from "../lib/addProjectPath";
 import { useStore } from "../store";
+import { appendAppAuthSessionToUrl, resolveServerHttpOrigin } from "../appAuth";
 import { isChatNewLocalShortcut, isChatNewShortcut, shortcutLabelForCommand } from "../keybindings";
 import { derivePendingApprovals, derivePendingUserInputs } from "../session-logic";
 import { gitRemoveWorktreeMutationOptions, gitStatusQueryOptions } from "../lib/gitReactQuery";
@@ -196,34 +197,14 @@ function JjalangtryBrandMark() {
   );
 }
 
-/**
- * Derives the server's HTTP origin (scheme + host + port) from the same
- * sources WsTransport uses, converting ws(s) to http(s).
- */
-function getServerHttpOrigin(): string {
-  const bridgeUrl = window.desktopBridge?.getWsUrl();
-  const envUrl = import.meta.env.VITE_WS_URL as string | undefined;
-  const wsUrl =
-    bridgeUrl && bridgeUrl.length > 0
-      ? bridgeUrl
-      : envUrl && envUrl.length > 0
-        ? envUrl
-        : `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.hostname}:${window.location.port}`;
-  // Parse to extract just the origin, dropping path/query (e.g. ?token=…)
-  const httpUrl = wsUrl.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
-  try {
-    return new URL(httpUrl).origin;
-  } catch {
-    return httpUrl;
-  }
-}
-
-const serverHttpOrigin = getServerHttpOrigin();
+const serverHttpOrigin = resolveServerHttpOrigin();
 
 function ProjectFavicon({ cwd }: { cwd: string }) {
   const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
 
-  const src = `${serverHttpOrigin}/api/project-favicon?cwd=${encodeURIComponent(cwd)}`;
+  const src = appendAppAuthSessionToUrl(
+    `${serverHttpOrigin}/api/project-favicon?cwd=${encodeURIComponent(cwd)}`,
+  );
 
   if (status === "error") {
     return <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/50" />;

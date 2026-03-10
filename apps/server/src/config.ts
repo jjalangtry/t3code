@@ -26,6 +26,9 @@ export interface ServerConfigShape {
   readonly devUrl: URL | undefined;
   readonly noBrowser: boolean;
   readonly authToken: string | undefined;
+  readonly appAuthUsername: string | undefined;
+  readonly appAuthPassword: string | undefined;
+  readonly appAuthSessionTtlDays: number;
   readonly autoBootstrapProjectFromCwd: boolean;
   readonly logWebSocketEvents: boolean;
 }
@@ -54,6 +57,9 @@ export class ServerConfig extends ServiceMap.Service<ServerConfig, ServerConfigS
           staticDir: undefined,
           devUrl: undefined,
           noBrowser: false,
+          appAuthUsername: undefined,
+          appAuthPassword: undefined,
+          appAuthSessionTtlDays: 30,
         };
       }),
     );

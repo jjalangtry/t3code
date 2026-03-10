@@ -1,4 +1,4 @@
-import { ThreadId } from "@t3tools/contracts";
+import { ThreadId, type AppAuthSession } from "@t3tools/contracts";
 import {
   Outlet,
   createRootRouteWithContext,
@@ -6,12 +6,13 @@ import {
   useNavigate,
   useRouterState,
 } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
 
 import { APP_DISPLAY_NAME } from "../branding";
 import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
 import { serverConfigQueryOptions, serverQueryKeys } from "../lib/serverReactQuery";
 import { readNativeApi } from "../nativeApi";
@@ -23,6 +24,7 @@ import { terminalRunningSubprocessFromEvent } from "../terminalActivity";
 import { onServerConfigUpdated, onServerWelcome } from "../wsNativeApi";
 import { providerQueryKeys } from "../lib/providerReactQuery";
 import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
+import { fetchAppAuthSession, loginWithAppAuth } from "../appAuth";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -35,6 +37,67 @@ export const Route = createRootRouteWithContext<{
 });
 
 function RootRouteView() {
+  const [authSession, setAuthSession] = useState<AppAuthSession | null>(null);
+  const [authStatus, setAuthStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setAuthStatus("loading");
+    setAuthError(null);
+
+    void fetchAppAuthSession()
+      .then((session) => {
+        if (cancelled) return;
+        setAuthSession(session);
+        setAuthStatus("ready");
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setAuthError(error instanceof Error ? error.message : "Failed to load auth session.");
+        setAuthStatus("error");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (authStatus === "loading") {
+    return (
+      <CenteredStatusCard
+        title="Checking session"
+        message={`Connecting to ${APP_DISPLAY_NAME}...`}
+      />
+    );
+  }
+
+  if (authStatus === "error") {
+    return (
+      <CenteredStatusCard
+        title="Connection failed"
+        message={authError ?? "Failed to load auth session."}
+        actions={
+          <Button size="sm" onClick={() => window.location.reload()}>
+            Retry
+          </Button>
+        }
+      />
+    );
+  }
+
+  if (authSession?.authRequired && !authSession.authenticated) {
+    return (
+      <LoginView
+        error={authError}
+        onAuthenticated={(session) => {
+          setAuthSession(session);
+          setAuthError(null);
+        }}
+      />
+    );
+  }
+
   if (!readNativeApi()) {
     return (
       <div className="flex h-screen flex-col bg-background text-foreground">
@@ -55,6 +118,91 @@ function RootRouteView() {
         <Outlet />
       </AnchoredToastProvider>
     </ToastProvider>
+  );
+}
+
+function CenteredStatusCard(props: {
+  title: string;
+  message: string;
+  actions?: ReactNode;
+}) {
+  return (
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-10 text-foreground sm:px-6">
+      <div className="pointer-events-none absolute inset-0 opacity-80">
+        <div className="absolute inset-x-0 top-0 h-44 bg-[radial-gradient(44rem_16rem_at_top,color-mix(in_srgb,var(--color-blue-500)_14%,transparent),transparent)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(145deg,color-mix(in_srgb,var(--background)_92%,var(--color-black))_0%,var(--background)_58%)]" />
+      </div>
+      <section className="relative w-full max-w-md rounded-2xl border border-border/80 bg-card/90 p-6 shadow-2xl shadow-black/20 backdrop-blur-md sm:p-8">
+        <p className="text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+          {APP_DISPLAY_NAME}
+        </p>
+        <h1 className="mt-3 text-2xl font-semibold tracking-tight">{props.title}</h1>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{props.message}</p>
+        {props.actions ? <div className="mt-5 flex flex-wrap gap-2">{props.actions}</div> : null}
+      </section>
+    </div>
+  );
+}
+
+function LoginView(props: {
+  error: string | null;
+  onAuthenticated: (session: AppAuthSession) => void;
+}) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(props.error);
+
+  useEffect(() => {
+    setSubmitError(props.error);
+  }, [props.error]);
+
+  return (
+    <CenteredStatusCard
+      title="Sign in"
+      message="Enter the server username and password to continue."
+      actions={
+        <form
+          className="mt-1 flex w-full flex-col gap-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setSubmitting(true);
+            setSubmitError(null);
+
+            void loginWithAppAuth({ username, password })
+              .then((result) => {
+                props.onAuthenticated(result.session);
+              })
+              .catch((error) => {
+                setSubmitError(error instanceof Error ? error.message : "Login failed.");
+              })
+              .finally(() => {
+                setSubmitting(false);
+              });
+          }}
+        >
+          <Input
+            autoCapitalize="none"
+            autoComplete="username"
+            autoCorrect="off"
+            placeholder="Username"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+          />
+          <Input
+            autoComplete="current-password"
+            placeholder="Password"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+          {submitError ? <p className="text-sm text-destructive">{submitError}</p> : null}
+          <Button type="submit" disabled={submitting || username.trim().length === 0 || password.length === 0}>
+            {submitting ? "Signing in..." : "Sign in"}
+          </Button>
+        </form>
+      }
+    />
   );
 }
 

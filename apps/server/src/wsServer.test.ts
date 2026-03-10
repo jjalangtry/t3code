@@ -236,6 +236,29 @@ function connectWs(port: number, token?: string): Promise<WebSocket> {
   });
 }
 
+function connectWsWithSession(port: number, sessionToken: string): Promise<WebSocket> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(
+      `ws://127.0.0.1:${port}/?auth_session=${encodeURIComponent(sessionToken)}`,
+    );
+    const pending: PendingMessages = { queue: [], waiters: [] };
+    pendingBySocket.set(ws, pending);
+
+    ws.on("message", (raw) => {
+      const parsed = JSON.parse(String(raw));
+      const waiter = pending.waiters.shift();
+      if (waiter) {
+        waiter(parsed);
+        return;
+      }
+      pending.queue.push(parsed);
+    });
+
+    ws.once("open", () => resolve(ws));
+    ws.once("error", () => reject(new Error("WebSocket connection failed")));
+  });
+}
+
 function waitForMessage(ws: WebSocket): Promise<unknown> {
   const pending = pendingBySocket.get(ws);
   if (!pending) {
@@ -388,6 +411,8 @@ describe("WebSocket Server", () => {
       logWebSocketEvents?: boolean;
       devUrl?: string;
       authToken?: string;
+      appAuthUsername?: string;
+      appAuthPassword?: string;
       stateDir?: string;
       staticDir?: string;
       providerLayer?: Layer.Layer<ProviderService, never>;
@@ -422,6 +447,9 @@ describe("WebSocket Server", () => {
       devUrl: options.devUrl ? new URL(options.devUrl) : undefined,
       noBrowser: true,
       authToken: options.authToken,
+      appAuthUsername: options.appAuthUsername,
+      appAuthPassword: options.appAuthPassword,
+      appAuthSessionTtlDays: 30,
       autoBootstrapProjectFromCwd: options.autoBootstrapProjectFromCwd ?? false,
       logWebSocketEvents: options.logWebSocketEvents ?? Boolean(options.devUrl),
     } satisfies ServerConfigShape);
@@ -1701,5 +1729,89 @@ describe("WebSocket Server", () => {
     connections.push(authorizedWs);
     const welcome = (await waitForMessage(authorizedWs)) as WsPush;
     expect(welcome.channel).toBe(WS_CHANNELS.serverWelcome);
+  });
+
+  it("reports unauthenticated app-auth session status before login", async () => {
+    server = await createTestServer({
+      cwd: "/test",
+      appAuthUsername: "jakob",
+      appAuthPassword: "secret-password",
+    });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/auth/session`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      authRequired: true,
+      authenticated: false,
+      username: null,
+    });
+  });
+
+  it("creates an app-auth session and authorizes websocket connections with it", async () => {
+    server = await createTestServer({
+      cwd: "/test",
+      appAuthUsername: "jakob",
+      appAuthPassword: "secret-password",
+    });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const loginResponse = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: "jakob",
+        password: "secret-password",
+      }),
+    });
+    expect(loginResponse.status).toBe(200);
+    const loginResult = (await loginResponse.json()) as {
+      session: { authRequired: boolean; authenticated: boolean; username: string | null };
+      sessionToken: string;
+    };
+    expect(loginResult.session).toEqual({
+      authRequired: true,
+      authenticated: true,
+      username: "jakob",
+    });
+    expect(typeof loginResult.sessionToken).toBe("string");
+    expect(loginResult.sessionToken.length).toBeGreaterThan(10);
+
+    await expect(connectWs(port)).rejects.toThrow("WebSocket connection failed");
+
+    const ws = await connectWsWithSession(port, loginResult.sessionToken);
+    connections.push(ws);
+    const welcome = (await waitForMessage(ws)) as WsPush;
+    expect(welcome.channel).toBe(WS_CHANNELS.serverWelcome);
+  });
+
+  it("rejects invalid app-auth credentials", async () => {
+    server = await createTestServer({
+      cwd: "/test",
+      appAuthUsername: "jakob",
+      appAuthPassword: "secret-password",
+    });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const loginResponse = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: "jakob",
+        password: "wrong-password",
+      }),
+    });
+
+    expect(loginResponse.status).toBe(401);
+    expect(await loginResponse.json()).toEqual({
+      message: "Invalid username or password.",
+    });
   });
 });
