@@ -22,7 +22,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Switch } from "../components/ui/switch";
-import { SidebarInset } from "~/components/ui/sidebar";
+import { SidebarInset, SidebarTrigger } from "~/components/ui/sidebar";
 
 const THEME_OPTIONS = [
   {
@@ -214,16 +214,23 @@ function SettingsRouteView() {
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground isolate">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
-        {isElectron && (
+        {isElectron ? (
           <div className="drag-region flex h-[52px] shrink-0 items-center border-b border-border px-5">
             <span className="text-xs font-medium tracking-wide text-muted-foreground/70">
               Settings
             </span>
           </div>
+        ) : (
+          <header className="border-b border-border px-3 py-2 md:hidden">
+            <div className="flex items-center gap-2">
+              <SidebarTrigger className="size-7 shrink-0" />
+              <span className="text-sm font-medium text-foreground">Settings</span>
+            </div>
+          </header>
         )}
 
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-6">
+          <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 sm:gap-6">
             <header className="space-y-1">
               <h1 className="text-2xl font-semibold tracking-tight text-foreground">Settings</h1>
               <p className="text-sm text-muted-foreground">
@@ -231,7 +238,7 @@ function SettingsRouteView() {
               </p>
             </header>
 
-            <section className="rounded-2xl border border-border bg-card p-5">
+            <section className="rounded-2xl border border-border bg-card p-3 sm:p-5">
               <div className="mb-4">
                 <h2 className="text-sm font-medium text-foreground">Appearance</h2>
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -274,7 +281,7 @@ function SettingsRouteView() {
               </p>
             </section>
 
-            <section className="rounded-2xl border border-border bg-card p-5">
+            <section className="rounded-2xl border border-border bg-card p-3 sm:p-5">
               <div className="mb-4">
                 <h2 className="text-sm font-medium text-foreground">Codex App Server</h2>
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -332,7 +339,7 @@ function SettingsRouteView() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-border bg-card p-5">
+            <section className="rounded-2xl border border-border bg-card p-3 sm:p-5">
               <div className="mb-4">
                 <h2 className="text-sm font-medium text-foreground">CLI Provider Overrides</h2>
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -449,12 +456,12 @@ function SettingsRouteView() {
                     spellCheck={false}
                   />
                   <span className="text-xs text-muted-foreground">
-                    Leave blank to use <code>cursor-agent</code> from your PATH.
+                    Leave blank to use <code>agent</code> from your PATH.
                   </span>
                 </label>
 
-                <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                  <p>
+                <div className="flex flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                  <p className="min-w-0 break-words">
                     Claude:{" "}
                     <span className="font-medium text-foreground">{claudeBinaryPath || "PATH"}</span>
                     {" · "}
@@ -486,7 +493,7 @@ function SettingsRouteView() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-border bg-card p-5">
+            <section className="rounded-2xl border border-border bg-card p-3 sm:p-5">
               <div className="mb-4">
                 <h2 className="text-sm font-medium text-foreground">Models</h2>
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -662,7 +669,7 @@ function SettingsRouteView() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-border bg-card p-5">
+            <section className="rounded-2xl border border-border bg-card p-3 sm:p-5">
               <div className="mb-4">
                 <h2 className="text-sm font-medium text-foreground">Responses</h2>
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -705,7 +712,7 @@ function SettingsRouteView() {
               ) : null}
             </section>
 
-            <section className="rounded-2xl border border-border bg-card p-5">
+            <section className="rounded-2xl border border-border bg-card p-3 sm:p-5">
               <div className="mb-4">
                 <h2 className="text-sm font-medium text-foreground">Keybindings</h2>
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -715,7 +722,7 @@ function SettingsRouteView() {
               </div>
 
               <div className="space-y-3">
-                <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
+                <div className="flex flex-col gap-2 rounded-lg border border-border bg-background px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-medium text-foreground">Config file path</p>
                     <p className="mt-1 break-all font-mono text-[11px] text-muted-foreground">
@@ -725,6 +732,7 @@ function SettingsRouteView() {
                   <Button
                     size="xs"
                     variant="outline"
+                    className="shrink-0 self-start sm:self-center"
                     disabled={!keybindingsConfigPath || isOpeningKeybindings}
                     onClick={openKeybindingsFile}
                   >
@@ -741,7 +749,7 @@ function SettingsRouteView() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-border bg-card p-5">
+            <section className="rounded-2xl border border-border bg-card p-3 sm:p-5">
               <div className="mb-4">
                 <h2 className="text-sm font-medium text-foreground">Safety</h2>
                 <p className="mt-1 text-xs text-muted-foreground">

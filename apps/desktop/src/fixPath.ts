@@ -1,10 +1,11 @@
-import { readPathFromLoginShell } from "@t3tools/shared/shell";
+import { readPathFromLoginShell, resolveLoginShell } from "@t3tools/shared/shell";
 
 export function fixPath(): void {
-  if (process.platform !== "darwin") return;
+  if (process.platform === "win32") return;
 
   try {
-    const shell = process.env.SHELL ?? "/bin/zsh";
+    const shell = resolveLoginShell({ platform: process.platform, shellEnv: process.env.SHELL });
+    if (!shell) return;
     const result = readPathFromLoginShell(shell);
     if (result) {
       process.env.PATH = result;

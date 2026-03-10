@@ -187,6 +187,7 @@ it.layer(testLayer)("server CLI command", (it) => {
       assert.equal(start.mock.calls.length, 1);
       assert.equal(resolvedConfig?.port, 5444);
       assert.equal(resolvedConfig?.mode, "web");
+      assert.equal(resolvedConfig?.autoBootstrapProjectFromCwd, false);
     }),
   );
 

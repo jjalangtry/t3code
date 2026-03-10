@@ -8,6 +8,7 @@
   "orientation": "any",
   "background_color": "#0b0b0c",
   "theme_color": "#0b0b0c",
+  "categories": ["developer", "productivity"],
   "icons": [
     {
       "src": "/jakob-icon.png",

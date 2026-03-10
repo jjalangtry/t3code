@@ -51,13 +51,6 @@ import {
 } from "../cli/shared.ts";
 
 const PROVIDER = "cursor" as const;
-const GENERIC_PLAN_MODE_PROMPT = [
-  "You are in Plan Mode.",
-  "Do not execute code changes.",
-  "Refine the approach collaboratively and, when ready, present the final plan inside <proposed_plan>...</proposed_plan>.",
-  "If you maintain a todo list, keep it accurate as you reason.",
-].join("\n");
-
 // ── Types ──────────────────────────────────────────────────────────
 
 interface CursorCliTurnProcess {
@@ -646,7 +639,32 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
         turnState.items.push(message);
         const assistantText = extractAssistantText(message);
         if (assistantText.length > 0) {
+          const previousText = turnState.assistantText;
           turnState.assistantText = assistantText;
+
+          const delta = assistantText.startsWith(previousText)
+            ? assistantText.slice(previousText.length)
+            : assistantText;
+          if (delta.length > 0) {
+            turnState.emittedTextDelta = true;
+            offerRuntimeEvent({
+              type: "content.delta",
+              eventId: nextEventId(),
+              provider: PROVIDER,
+              createdAt: nowIso(),
+              threadId: context.session.threadId,
+              turnId: turnState.turnId,
+              itemId: asRuntimeItemId(turnState.assistantItemId),
+              payload: {
+                streamKind: "assistant_text",
+                delta,
+              },
+              providerRefs: {
+                providerTurnId: String(turnState.turnId),
+                providerItemId: ProviderItemId.makeUnsafe(turnState.assistantItemId),
+              },
+            });
+          }
         }
         context.lastAssistantMessageId = messageId;
         context.session = {
@@ -926,15 +944,18 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
         const turnId = TurnIdBrand.makeUnsafe(crypto.randomUUID());
         const selectedModel = input.model ?? context.session.model;
 
+        const isFullAccess = context.session.runtimeMode === "full-access";
+
         const args = [
           "--print",
           "--output-format",
           "stream-json",
+          "--stream-partial-output",
+          "--trust",
+          ...(isFullAccess ? ["--force"] : []),
           ...(selectedModel && selectedModel !== "auto" ? ["--model", selectedModel] : []),
           ...(context.providerThreadId ? ["--resume", context.providerThreadId] : []),
-          ...(input.interactionMode === "plan"
-            ? ["--append-system-prompt", GENERIC_PLAN_MODE_PROMPT]
-            : []),
+          ...(input.interactionMode === "plan" ? ["--mode", "plan"] : []),
           prompt,
         ];
 

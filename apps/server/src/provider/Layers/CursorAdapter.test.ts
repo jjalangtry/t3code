@@ -144,19 +144,18 @@ describe("CursorAdapterLive", () => {
 
       assert.equal(spawn.binaryPath, "/opt/cursor-agent");
       assert.equal(spawn.cwd, "/tmp/cursor-project");
-      assert.deepEqual(
-        spawn.args.slice(0, 7),
-        [
-          "--print",
-          "--output-format",
-          "stream-json",
-          "--model",
-          "cursor/gpt-5",
-          "--resume",
-          "cursor-session-1",
-        ],
-      );
-      assert.equal(spawn.args.includes("--append-system-prompt"), true);
+      assert.equal(spawn.args.includes("--print"), true);
+      assert.equal(spawn.args.includes("--output-format"), true);
+      assert.equal(spawn.args.includes("stream-json"), true);
+      assert.equal(spawn.args.includes("--stream-partial-output"), true);
+      assert.equal(spawn.args.includes("--trust"), true);
+      assert.equal(spawn.args.includes("--force"), true);
+      assert.equal(spawn.args.includes("--model"), true);
+      assert.equal(spawn.args.includes("cursor/gpt-5"), true);
+      assert.equal(spawn.args.includes("--resume"), true);
+      assert.equal(spawn.args.includes("cursor-session-1"), true);
+      assert.equal(spawn.args.includes("--mode"), true);
+      assert.equal(spawn.args.includes("plan"), true);
       assert.equal(spawn.args.at(-1), "hello");
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),

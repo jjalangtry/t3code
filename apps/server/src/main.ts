@@ -160,7 +160,7 @@ const ServerConfigLive = (input: CliInput) =>
       const authToken = Option.getOrUndefined(input.authToken) ?? env.authToken;
       const autoBootstrapProjectFromCwd = resolveBooleanFlag(
         input.autoBootstrapProjectFromCwd,
-        env.autoBootstrapProjectFromCwd ?? mode === "web",
+        env.autoBootstrapProjectFromCwd ?? false,
       );
       const logWebSocketEvents = resolveBooleanFlag(
         input.logWebSocketEvents,

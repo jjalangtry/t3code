@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { extractPathFromShellOutput, readPathFromLoginShell } from "./shell";
+import { extractPathFromShellOutput, readPathFromLoginShell, resolveLoginShell } from "./shell";
 
 describe("extractPathFromShellOutput", () => {
   it("extracts the path between capture markers", () => {
@@ -51,5 +51,25 @@ describe("readPathFromLoginShell", () => {
     expect(args?.[1]).toContain("__T3CODE_PATH_START__");
     expect(args?.[1]).toContain("__T3CODE_PATH_END__");
     expect(options).toEqual({ encoding: "utf8", timeout: 5000 });
+  });
+});
+
+describe("resolveLoginShell", () => {
+  it("prefers the explicit SHELL environment variable", () => {
+    expect(resolveLoginShell({ platform: "linux", shellEnv: "/usr/bin/fish" })).toBe(
+      "/usr/bin/fish",
+    );
+  });
+
+  it("defaults to zsh on macOS", () => {
+    expect(resolveLoginShell({ platform: "darwin", shellEnv: undefined })).toBe("/bin/zsh");
+  });
+
+  it("defaults to bash on linux", () => {
+    expect(resolveLoginShell({ platform: "linux", shellEnv: undefined })).toBe("/bin/bash");
+  });
+
+  it("returns undefined on windows", () => {
+    expect(resolveLoginShell({ platform: "win32", shellEnv: undefined })).toBeUndefined();
   });
 });

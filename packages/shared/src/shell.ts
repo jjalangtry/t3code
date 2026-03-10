@@ -14,6 +14,22 @@ type ExecFileSyncLike = (
   options: { encoding: "utf8"; timeout: number },
 ) => string;
 
+export function resolveLoginShell(input: {
+  readonly platform: NodeJS.Platform;
+  readonly shellEnv: string | undefined;
+}): string | undefined {
+  if (input.shellEnv && input.shellEnv.trim().length > 0) {
+    return input.shellEnv;
+  }
+  if (input.platform === "darwin") {
+    return "/bin/zsh";
+  }
+  if (input.platform === "win32") {
+    return undefined;
+  }
+  return "/bin/bash";
+}
+
 export function extractPathFromShellOutput(output: string): string | null {
   const startIndex = output.indexOf(PATH_CAPTURE_START);
   if (startIndex === -1) return null;
