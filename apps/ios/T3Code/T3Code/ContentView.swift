@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @EnvironmentObject private var store: SessionStore
+    @Environment(SessionStore.self) private var store
 
     var body: some View {
         if store.isConnected {
@@ -11,13 +11,11 @@ struct ContentView: View {
                 if let threadId = store.selectedThreadId {
                     ThreadView(threadId: threadId)
                 } else {
-                    VStack(spacing: 12) {
-                        Image(systemName: "message")
-                            .font(.largeTitle)
-                            .foregroundStyle(.tertiary)
-                        Text("Select a thread")
-                            .foregroundStyle(.secondary)
-                    }
+                    ContentUnavailableView(
+                        "Select a Thread",
+                        systemImage: "message",
+                        description: Text("Choose a thread from the sidebar to start chatting")
+                    )
                 }
             }
         } else {

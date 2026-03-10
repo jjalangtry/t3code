@@ -4,8 +4,7 @@ import Foundation
 
 /// Mirrors the NativeApi from the web client, providing typed methods
 /// for orchestration, git, and server operations.
-@MainActor
-final class T3CodeAPI {
+final class T3CodeAPI: Sendable {
     let transport: WebSocketTransport
 
     init(transport: WebSocketTransport) {
@@ -139,30 +138,30 @@ final class T3CodeAPI {
 
     // MARK: - Push event subscriptions
 
-    func onDomainEvent(_ handler: @escaping @Sendable @MainActor (OrchestrationEvent) -> Void) {
-        transport.subscribe("orchestration.domainEvent") { data in
-            guard let dict = data as? [String: Any] else { return }
-            guard let jsonData = try? JSONSerialization.data(withJSONObject: dict),
+    func onDomainEvent(_ handler: @escaping @Sendable (OrchestrationEvent) -> Void) async {
+        await transport.subscribe("orchestration.domainEvent") { data in
+            guard let dict = data as? [String: Any],
+                  let jsonData = try? JSONSerialization.data(withJSONObject: dict),
                   let event = try? JSONDecoder().decode(OrchestrationEvent.self, from: jsonData) else { return }
-            Task { @MainActor in handler(event) }
+            handler(event)
         }
     }
 
-    func onWelcome(_ handler: @escaping @Sendable @MainActor (WsWelcomePayload) -> Void) {
-        transport.subscribe("server.welcome") { data in
-            guard let dict = data as? [String: Any] else { return }
-            guard let jsonData = try? JSONSerialization.data(withJSONObject: dict),
+    func onWelcome(_ handler: @escaping @Sendable (WsWelcomePayload) -> Void) async {
+        await transport.subscribe("server.welcome") { data in
+            guard let dict = data as? [String: Any],
+                  let jsonData = try? JSONSerialization.data(withJSONObject: dict),
                   let payload = try? JSONDecoder().decode(WsWelcomePayload.self, from: jsonData) else { return }
-            Task { @MainActor in handler(payload) }
+            handler(payload)
         }
     }
 
-    func onServerConfigUpdated(_ handler: @escaping @Sendable @MainActor (ServerConfigUpdatedPayload) -> Void) {
-        transport.subscribe("server.configUpdated") { data in
-            guard let dict = data as? [String: Any] else { return }
-            guard let jsonData = try? JSONSerialization.data(withJSONObject: dict),
+    func onServerConfigUpdated(_ handler: @escaping @Sendable (ServerConfigUpdatedPayload) -> Void) async {
+        await transport.subscribe("server.configUpdated") { data in
+            guard let dict = data as? [String: Any],
+                  let jsonData = try? JSONSerialization.data(withJSONObject: dict),
                   let payload = try? JSONDecoder().decode(ServerConfigUpdatedPayload.self, from: jsonData) else { return }
-            Task { @MainActor in handler(payload) }
+            handler(payload)
         }
     }
 }

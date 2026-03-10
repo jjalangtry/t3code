@@ -1,33 +1,34 @@
 import Foundation
+import Observation
 import SwiftUI
 
 // MARK: - App-level view model
 
-/// Central observable state for the iOS client, analogous to the web app's zustand store
-/// combined with session-logic event processing.
+/// Central observable state for the iOS client using @Observable (iOS 17+).
 @MainActor
-final class SessionStore: ObservableObject {
+@Observable
+final class SessionStore {
     // Connection
-    @Published var serverURL: String = ""
-    @Published var authToken: String = ""
-    @Published var isConnected = false
-    @Published var connectionError: String?
+    var serverURL: String = ""
+    var authToken: String = ""
+    var isConnected = false
+    var connectionError: String?
 
     // Welcome
-    @Published var welcome: WsWelcomePayload?
+    var welcome: WsWelcomePayload?
 
     // Data
-    @Published var projects: [OrchestrationProject] = []
-    @Published var threads: [OrchestrationThread] = []
-    @Published var providers: [ServerProviderStatus] = []
-    @Published var snapshotSequence: Int = 0
+    var projects: [OrchestrationProject] = []
+    var threads: [OrchestrationThread] = []
+    var providers: [ServerProviderStatus] = []
+    var snapshotSequence: Int = 0
 
     // Navigation
-    @Published var selectedThreadId: ThreadId?
+    var selectedThreadId: ThreadId?
 
-    // Streaming state for the selected thread
-    @Published var streamingMessageId: MessageId?
-    @Published var streamingText: String = ""
+    // Streaming state
+    var streamingMessageId: MessageId?
+    var streamingText: String = ""
 
     private var transport: WebSocketTransport?
     private var api: T3CodeAPI?
@@ -58,10 +59,8 @@ final class SessionStore: ObservableObject {
             return
         }
 
-        // Build WebSocket URL
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
 
-        // Ensure ws/wss scheme
         if components?.scheme == "https" {
             components?.scheme = "wss"
         } else if components?.scheme == "http" {
@@ -70,7 +69,6 @@ final class SessionStore: ObservableObject {
             components?.scheme = "wss"
         }
 
-        // Add auth token
         if !authToken.isEmpty {
             var queryItems = components?.queryItems ?? []
             queryItems.append(URLQueryItem(name: "token", value: authToken))
@@ -89,15 +87,12 @@ final class SessionStore: ObservableObject {
         transport = newTransport
         api = newApi
 
-        // Set up push listeners before connecting
-        setupListeners(api: newApi)
-
-        // Connect
-        newTransport.connect()
         isConnected = true
 
-        // Fetch initial snapshot
         Task {
+            await setupListeners(api: newApi)
+            await newTransport.connect()
+
             do {
                 let snapshot: OrchestrationReadModel = try await newApi.getSnapshot()
                 self.applySnapshot(snapshot)
@@ -108,7 +103,9 @@ final class SessionStore: ObservableObject {
     }
 
     func disconnect() {
-        transport?.disconnect()
+        Task {
+            await transport?.disconnect()
+        }
         transport = nil
         api = nil
         isConnected = false
@@ -126,11 +123,7 @@ final class SessionStore: ObservableObject {
     func sendMessage(threadId: ThreadId, text: String) async throws {
         guard let api else { throw TransportError.disposed }
         let messageId = UUID().uuidString
-        try await api.sendMessage(
-            threadId: threadId,
-            messageId: messageId,
-            text: text
-        )
+        try await api.sendMessage(threadId: threadId, messageId: messageId, text: text)
     }
 
     func interruptTurn(threadId: ThreadId) async throws {
@@ -180,20 +173,23 @@ final class SessionStore: ObservableObject {
 
     // MARK: - Internal
 
-    private func setupListeners(api: T3CodeAPI) {
-        api.onWelcome { [weak self] payload in
-            guard let self else { return }
-            self.welcome = payload
+    private func setupListeners(api: T3CodeAPI) async {
+        await api.onWelcome { [weak self] payload in
+            Task { @MainActor [weak self] in
+                self?.welcome = payload
+            }
         }
 
-        api.onServerConfigUpdated { [weak self] payload in
-            guard let self else { return }
-            self.providers = payload.providers
+        await api.onServerConfigUpdated { [weak self] payload in
+            Task { @MainActor [weak self] in
+                self?.providers = payload.providers
+            }
         }
 
-        api.onDomainEvent { [weak self] event in
-            guard let self else { return }
-            self.handleDomainEvent(event)
+        await api.onDomainEvent { [weak self] event in
+            Task { @MainActor [weak self] in
+                self?.handleDomainEvent(event)
+            }
         }
     }
 
@@ -204,13 +200,9 @@ final class SessionStore: ObservableObject {
     }
 
     private func handleDomainEvent(_ event: OrchestrationEvent) {
-        // Re-fetch snapshot on any domain event to stay in sync.
-        // This is simple and correct; optimization can come later
-        // by applying incremental event patches.
         Task {
             guard let api = self.api else { return }
 
-            // Handle streaming deltas locally for responsiveness
             switch event.type {
             case "thread.message-sent":
                 if let streaming = event.payload["streaming"]?.boolValue, streaming,
@@ -222,12 +214,10 @@ final class SessionStore: ObservableObject {
                 break
             }
 
-            // Re-sync full state
             do {
                 let snapshot: OrchestrationReadModel = try await api.getSnapshot()
                 self.applySnapshot(snapshot)
 
-                // Clear streaming state if the message is no longer streaming
                 if let sid = self.streamingMessageId {
                     let stillStreaming = snapshot.threads
                         .flatMap(\.messages)
@@ -238,7 +228,7 @@ final class SessionStore: ObservableObject {
                     }
                 }
             } catch {
-                // Best effort - next event will retry
+                // Best effort
             }
         }
     }

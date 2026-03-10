@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ThreadView: View {
-    @EnvironmentObject private var store: SessionStore
+    @Environment(SessionStore.self) private var store
     let threadId: ThreadId
 
     @State private var composerText = ""
@@ -85,36 +85,15 @@ struct ThreadView: View {
             }
 
             // Composer
-            HStack(alignment: .bottom, spacing: 8) {
-                TextField("Message...", text: $composerText, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(1...6)
-                    .padding(10)
-                    .background(.background.secondary)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-
-                if isRunning {
-                    Button {
-                        Task {
-                            try? await store.interruptTurn(threadId: threadId)
-                        }
-                    } label: {
-                        Image(systemName: "stop.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(.red)
-                    }
-                } else {
-                    Button {
-                        sendMessage()
-                    } label: {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.title2)
-                    }
-                    .disabled(composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
+            ComposerBar(
+                text: $composerText,
+                isRunning: isRunning,
+                isSending: isSending,
+                onSend: { sendMessage() },
+                onInterrupt: {
+                    Task { try? await store.interruptTurn(threadId: threadId) }
                 }
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 8)
+            )
         }
         .navigationTitle(thread?.title ?? "Thread")
         .navigationBarTitleDisplayMode(.inline)
@@ -142,6 +121,43 @@ struct ThreadView: View {
             }
             isSending = false
         }
+    }
+}
+
+// MARK: - Composer Bar
+
+struct ComposerBar: View {
+    @Binding var text: String
+    let isRunning: Bool
+    let isSending: Bool
+    let onSend: () -> Void
+    let onInterrupt: () -> Void
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            TextField("Message...", text: $text, axis: .vertical)
+                .textFieldStyle(.plain)
+                .lineLimit(1...6)
+                .padding(10)
+                .background(.ultraThinMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+
+            if isRunning {
+                Button(action: onInterrupt) {
+                    Image(systemName: "stop.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.red)
+                }
+            } else {
+                Button(action: onSend) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.title2)
+                }
+                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
     }
 }
 
@@ -241,25 +257,25 @@ struct ActivityLogView: View {
             }
         }
         .padding(10)
-        .background(Color(.tertiarySystemBackground))
+        .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
     private func iconName(for activity: ThreadActivity) -> String {
         switch activity.tone {
-        case .tool: "wrench"
-        case .error: "exclamationmark.triangle"
-        case .approval: "checkmark.shield"
-        case .info: "info.circle"
+        case .tool: return "wrench"
+        case .error: return "exclamationmark.triangle"
+        case .approval: return "checkmark.shield"
+        case .info: return "info.circle"
         }
     }
 
     private func iconColor(for activity: ThreadActivity) -> Color {
         switch activity.tone {
-        case .tool: .blue
-        case .error: .red
-        case .approval: .orange
-        case .info: .secondary
+        case .tool: return .blue
+        case .error: return .red
+        case .approval: return .orange
+        case .info: return .secondary
         }
     }
 

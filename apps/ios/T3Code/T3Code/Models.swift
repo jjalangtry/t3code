@@ -13,29 +13,29 @@ typealias CheckpointRef = String
 
 // MARK: - Provider types
 
-enum ProviderKind: String, Codable, CaseIterable {
+enum ProviderKind: String, Codable, Sendable, CaseIterable {
     case codex
     case claudeCode
     case cursor
 }
 
-enum RuntimeMode: String, Codable {
+enum RuntimeMode: String, Codable, Sendable {
     case approvalRequired = "approval-required"
     case fullAccess = "full-access"
 }
 
-enum InteractionMode: String, Codable {
+enum InteractionMode: String, Codable, Sendable {
     case `default`
     case plan
 }
 
 // MARK: - Session
 
-enum SessionStatus: String, Codable {
+enum SessionStatus: String, Codable, Sendable {
     case idle, starting, running, ready, interrupted, stopped, error
 }
 
-struct OrchestrationSession: Codable {
+struct OrchestrationSession: Codable, Sendable {
     let threadId: ThreadId
     let status: SessionStatus
     let providerName: String?
@@ -47,11 +47,11 @@ struct OrchestrationSession: Codable {
 
 // MARK: - Messages
 
-enum MessageRole: String, Codable {
+enum MessageRole: String, Codable, Sendable {
     case user, assistant, system
 }
 
-struct ChatAttachment: Codable, Identifiable {
+struct ChatAttachment: Codable, Sendable, Identifiable {
     let type: String
     let id: String
     let name: String
@@ -59,7 +59,7 @@ struct ChatAttachment: Codable, Identifiable {
     let sizeBytes: Int
 }
 
-struct OrchestrationMessage: Codable, Identifiable {
+struct OrchestrationMessage: Codable, Sendable, Identifiable {
     let id: MessageId
     let role: MessageRole
     let text: String
@@ -72,11 +72,11 @@ struct OrchestrationMessage: Codable, Identifiable {
 
 // MARK: - Turn
 
-enum LatestTurnState: String, Codable {
+enum LatestTurnState: String, Codable, Sendable {
     case running, interrupted, completed, error
 }
 
-struct LatestTurn: Codable {
+struct LatestTurn: Codable, Sendable {
     let turnId: TurnId
     let state: LatestTurnState
     let requestedAt: String
@@ -87,16 +87,16 @@ struct LatestTurn: Codable {
 
 // MARK: - Activities
 
-enum ActivityTone: String, Codable {
+enum ActivityTone: String, Codable, Sendable {
     case info, tool, approval, error
 }
 
-struct ThreadActivity: Codable, Identifiable {
+struct ThreadActivity: Codable, Sendable, Identifiable {
     let id: EventId
     let tone: ActivityTone
     let kind: String
     let summary: String
-    let payload: AnyCodable?
+    let payload: JSONValue?
     let turnId: TurnId?
     let sequence: Int?
     let createdAt: String
@@ -104,14 +104,14 @@ struct ThreadActivity: Codable, Identifiable {
 
 // MARK: - Checkpoints
 
-struct CheckpointFile: Codable {
+struct CheckpointFile: Codable, Sendable {
     let path: String
     let kind: String
     let additions: Int
     let deletions: Int
 }
 
-struct CheckpointSummary: Codable {
+struct CheckpointSummary: Codable, Sendable {
     let turnId: TurnId
     let checkpointTurnCount: Int
     let checkpointRef: CheckpointRef
@@ -123,7 +123,7 @@ struct CheckpointSummary: Codable {
 
 // MARK: - Proposed Plan
 
-struct ProposedPlan: Codable, Identifiable {
+struct ProposedPlan: Codable, Sendable, Identifiable {
     let id: String
     let turnId: TurnId?
     let planMarkdown: String
@@ -133,7 +133,7 @@ struct ProposedPlan: Codable, Identifiable {
 
 // MARK: - Thread
 
-struct OrchestrationThread: Codable, Identifiable {
+struct OrchestrationThread: Codable, Sendable, Identifiable {
     let id: ThreadId
     let projectId: ProjectId
     let title: String
@@ -155,7 +155,7 @@ struct OrchestrationThread: Codable, Identifiable {
 
 // MARK: - Project
 
-struct ProjectScript: Codable, Identifiable {
+struct ProjectScript: Codable, Sendable, Identifiable {
     let id: String
     let name: String
     let command: String
@@ -163,7 +163,7 @@ struct ProjectScript: Codable, Identifiable {
     let runOnWorktreeCreate: Bool
 }
 
-struct OrchestrationProject: Codable, Identifiable {
+struct OrchestrationProject: Codable, Sendable, Identifiable {
     let id: ProjectId
     let title: String
     let workspaceRoot: String
@@ -176,7 +176,7 @@ struct OrchestrationProject: Codable, Identifiable {
 
 // MARK: - Read Model (snapshot)
 
-struct OrchestrationReadModel: Codable {
+struct OrchestrationReadModel: Codable, Sendable {
     let snapshotSequence: Int
     let projects: [OrchestrationProject]
     let threads: [OrchestrationThread]
@@ -185,7 +185,7 @@ struct OrchestrationReadModel: Codable {
 
 // MARK: - Welcome payload
 
-struct WsWelcomePayload: Codable {
+struct WsWelcomePayload: Codable, Sendable {
     let cwd: String
     let projectName: String
     let bootstrapProjectId: ProjectId?
@@ -194,7 +194,7 @@ struct WsWelcomePayload: Codable {
 
 // MARK: - Server config
 
-struct ServerProviderStatus: Codable, Identifiable {
+struct ServerProviderStatus: Codable, Sendable, Identifiable {
     var id: String { provider }
     let provider: String
     let status: String
@@ -204,14 +204,14 @@ struct ServerProviderStatus: Codable, Identifiable {
     let message: String?
 }
 
-struct ServerConfigUpdatedPayload: Codable {
-    let issues: [AnyCodable]
+struct ServerConfigUpdatedPayload: Codable, Sendable {
+    let issues: [JSONValue]
     let providers: [ServerProviderStatus]
 }
 
 // MARK: - Orchestration Event
 
-struct OrchestrationEvent: Codable {
+struct OrchestrationEvent: Codable, Sendable {
     let sequence: Int
     let eventId: EventId
     let type: String
@@ -219,13 +219,13 @@ struct OrchestrationEvent: Codable {
     let aggregateId: String
     let occurredAt: String
     let commandId: CommandId?
-    let payload: AnyCodable
-    let metadata: AnyCodable?
+    let payload: JSONValue
+    let metadata: JSONValue?
 }
 
-// MARK: - AnyCodable (generic JSON wrapper)
+// MARK: - JSONValue (type-safe JSON wrapper)
 
-enum JSONValue: Codable, Sendable {
+enum JSONValue: Codable, Sendable, Hashable {
     case null
     case bool(Bool)
     case int(Int)
@@ -268,19 +268,6 @@ enum JSONValue: Codable, Sendable {
         }
     }
 
-    /// Convert to untyped Any for interop with JSONSerialization-based code
-    var anyValue: Any {
-        switch self {
-        case .null: return NSNull()
-        case .bool(let v): return v
-        case .int(let v): return v
-        case .double(let v): return v
-        case .string(let v): return v
-        case .array(let v): return v.map(\.anyValue)
-        case .object(let v): return v.mapValues(\.anyValue)
-        }
-    }
-
     subscript(key: String) -> JSONValue? {
         if case .object(let dict) = self { return dict[key] }
         return nil
@@ -295,7 +282,9 @@ enum JSONValue: Codable, Sendable {
         if case .bool(let b) = self { return b }
         return nil
     }
-}
 
-// Legacy alias
-typealias AnyCodable = JSONValue
+    var intValue: Int? {
+        if case .int(let i) = self { return i }
+        return nil
+    }
+}

@@ -1,12 +1,14 @@
 import SwiftUI
 
 struct SidebarView: View {
-    @EnvironmentObject private var store: SessionStore
+    @Environment(SessionStore.self) private var store
     @State private var showNewThread = false
     @State private var newThreadTitle = ""
     @State private var selectedProjectId: ProjectId?
 
     var body: some View {
+        @Bindable var store = store
+
         List(selection: $store.selectedThreadId) {
             ForEach(store.activeProjects) { project in
                 Section {
@@ -67,15 +69,12 @@ struct SidebarView: View {
                 let project = store.projects.first { $0.id == projectId }
                 let model = project?.defaultModel ?? "o4-mini"
                 Task {
-                    do {
-                        let threadId = try await store.createThread(
-                            projectId: projectId,
-                            title: newThreadTitle,
-                            model: model
-                        )
+                    if let threadId = try? await store.createThread(
+                        projectId: projectId,
+                        title: newThreadTitle,
+                        model: model
+                    ) {
                         store.selectedThreadId = threadId
-                    } catch {
-                        // Handle error
                     }
                 }
             }

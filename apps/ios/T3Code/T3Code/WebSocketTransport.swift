@@ -1,12 +1,10 @@
 import Foundation
 
-// MARK: - WebSocket Transport
+// MARK: - WebSocket Transport (Actor)
 
 /// Low-level WebSocket transport matching the T3 Code server protocol.
-/// Handles connection, reconnection, request/response correlation, and push event dispatch.
-/// Not actor-isolated — all mutable state is accessed only from MainActor call sites.
-final class WebSocketTransport: @unchecked Sendable {
-
+/// Uses Swift actor isolation for thread-safe state management.
+actor WebSocketTransport {
     private var webSocketTask: URLSessionWebSocketTask?
     private let session = URLSession(configuration: .default)
     private var nextId: Int = 1
@@ -33,7 +31,6 @@ final class WebSocketTransport: @unchecked Sendable {
 
     // MARK: - Lifecycle
 
-    @MainActor
     func connect() {
         guard !disposed else { return }
 
@@ -48,7 +45,6 @@ final class WebSocketTransport: @unchecked Sendable {
         }
     }
 
-    @MainActor
     func disconnect() {
         disposed = true
         reconnectWork?.cancel()
@@ -61,6 +57,7 @@ final class WebSocketTransport: @unchecked Sendable {
             req.continuation.resume(throwing: TransportError.disposed)
             pending.removeValue(forKey: id)
         }
+        pending.removeAll()
 
         webSocketTask?.cancel(with: .normalClosure, reason: nil)
         webSocketTask = nil
@@ -68,14 +65,12 @@ final class WebSocketTransport: @unchecked Sendable {
 
     // MARK: - Request / Response
 
-    @MainActor
     func request<T: Decodable>(_ method: String, params: [String: Any]? = nil) async throws -> T {
         let result = try await requestRaw(method, params: params)
         let data = try JSONSerialization.data(withJSONObject: result as Any)
         return try JSONDecoder().decode(T.self, from: data)
     }
 
-    @MainActor
     func requestRaw(_ method: String, params: [String: Any]? = nil) async throws -> Any? {
         let id = String(nextId)
         nextId += 1
@@ -93,30 +88,29 @@ final class WebSocketTransport: @unchecked Sendable {
             throw TransportError.encodingFailed
         }
 
+        let ws = webSocketTask
+
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Any?, any Error>) in
             let timeoutTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: UInt64(Self.requestTimeoutSeconds * 1_000_000_000))
+                try? await Task.sleep(for: .seconds(Self.requestTimeoutSeconds))
                 guard !Task.isCancelled else { return }
-                await MainActor.run { self?.handleTimeout(id: id, method: method) }
+                await self?.handleTimeout(id: id, method: method)
             }
 
             pending[id] = PendingRequest(continuation: continuation, timeoutTask: timeoutTask)
 
-            let ws = webSocketTask
             Task {
                 try? await ws?.send(.string(jsonString))
             }
         }
     }
 
-    @MainActor
     func requestVoid(_ method: String, params: [String: Any]? = nil) async throws {
         _ = try await requestRaw(method, params: params)
     }
 
     // MARK: - Push subscriptions
 
-    @MainActor
     func subscribe(_ channel: String, listener: @escaping @Sendable (Any) -> Void) {
         pushListeners[channel, default: []].append(listener)
     }
@@ -138,20 +132,17 @@ final class WebSocketTransport: @unchecked Sendable {
                     text = nil
                 }
                 if let text {
-                    await MainActor.run { self.handleMessage(text) }
+                    handleMessage(text)
                 }
             } catch {
-                await MainActor.run {
-                    if !self.disposed {
-                        self.scheduleReconnect()
-                    }
+                if !disposed {
+                    scheduleReconnect()
                 }
                 return
             }
         }
     }
 
-    @MainActor
     private func handleMessage(_ raw: String) {
         guard let data = raw.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -185,22 +176,20 @@ final class WebSocketTransport: @unchecked Sendable {
         }
     }
 
-    @MainActor
     private func handleTimeout(id: String, method: String) {
         guard let req = pending.removeValue(forKey: id) else { return }
         req.continuation.resume(throwing: TransportError.timeout(method))
     }
 
-    @MainActor
     private func scheduleReconnect() {
         guard !disposed else { return }
         let delay = Self.reconnectDelays[min(reconnectAttempt, Self.reconnectDelays.count - 1)]
         reconnectAttempt += 1
 
         reconnectWork = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled else { return }
-            await MainActor.run { self?.connect() }
+            await self?.connect()
         }
     }
 }
