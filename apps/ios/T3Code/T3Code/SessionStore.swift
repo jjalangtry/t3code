@@ -26,6 +26,9 @@ final class SessionStore {
 
     var streamingMessageId: MessageId?
     var streamingText: String = ""
+    var terminalSessions: [ThreadId: TerminalSessionSnapshot] = [:]
+    var terminalActivity: [ThreadId: Bool] = [:]
+    var terminalErrors: [ThreadId: String] = [:]
 
     private var transport: WebSocketTransport?
     private var api: T3CodeAPI?
@@ -204,7 +207,32 @@ final class SessionStore {
     func sendMessage(threadId: ThreadId, text: String) async throws {
         guard let api else { throw TransportError.notConnected }
         let messageId = UUID().uuidString
-        try await api.sendMessage(threadId: threadId, messageId: messageId, text: text)
+        let thread = threads.first { $0.id == threadId }
+        try await api.sendMessage(
+            threadId: threadId,
+            messageId: messageId,
+            text: text,
+            runtimeMode: thread?.runtimeMode ?? .fullAccess,
+            interactionMode: thread?.interactionMode ?? .default
+        )
+    }
+
+    func sendMessage(
+        threadId: ThreadId,
+        text: String,
+        attachments: [PendingComposerAttachment]
+    ) async throws {
+        guard let api else { throw TransportError.notConnected }
+        let messageId = UUID().uuidString
+        let thread = threads.first { $0.id == threadId }
+        try await api.sendMessage(
+            threadId: threadId,
+            messageId: messageId,
+            text: text,
+            attachments: attachments,
+            runtimeMode: thread?.runtimeMode ?? .fullAccess,
+            interactionMode: thread?.interactionMode ?? .default
+        )
     }
 
     func interruptTurn(threadId: ThreadId) async throws {
@@ -215,6 +243,36 @@ final class SessionStore {
     func createThread(projectId: ProjectId, title: String, model: String) async throws -> ThreadId {
         guard let api else { throw TransportError.notConnected }
         return try await api.createThread(projectId: projectId, title: title, model: model)
+    }
+
+    func createThread(
+        projectId: ProjectId,
+        title: String,
+        model: String,
+        runtimeMode: RuntimeMode,
+        interactionMode: InteractionMode
+    ) async throws -> ThreadId {
+        guard let api else { throw TransportError.notConnected }
+        return try await api.createThread(
+            projectId: projectId,
+            title: title,
+            model: model,
+            runtimeMode: runtimeMode,
+            interactionMode: interactionMode
+        )
+    }
+
+    func createProject(workspaceRoot: String, title: String? = nil) async throws -> ProjectId {
+        guard let api else { throw TransportError.notConnected }
+        let trimmedRoot = workspaceRoot.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackTitle = trimmedRoot.split(separator: "/").last.map(String.init) ?? trimmedRoot
+        return try await api.createProject(
+            workspaceRoot: trimmedRoot,
+            title: title?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                ? title!.trimmingCharacters(in: .whitespacesAndNewlines)
+                : fallbackTitle,
+            defaultModel: "o4-mini"
+        )
     }
 
     func deleteThread(threadId: ThreadId) async throws {
@@ -230,6 +288,74 @@ final class SessionStore {
     func stopSession(threadId: ThreadId) async throws {
         guard let api else { throw TransportError.notConnected }
         try await api.stopSession(threadId: threadId)
+    }
+
+    func setThreadRuntimeMode(threadId: ThreadId, runtimeMode: RuntimeMode) async throws {
+        guard let api else { throw TransportError.notConnected }
+        try await api.setThreadRuntimeMode(threadId: threadId, runtimeMode: runtimeMode)
+    }
+
+    func setThreadInteractionMode(threadId: ThreadId, interactionMode: InteractionMode) async throws {
+        guard let api else { throw TransportError.notConnected }
+        try await api.setThreadInteractionMode(threadId: threadId, interactionMode: interactionMode)
+    }
+
+    func gitStatus(threadId: ThreadId) async throws -> GitStatusResult {
+        guard let api else { throw TransportError.notConnected }
+        return try await api.gitStatus(cwd: try gitCWD(for: threadId))
+    }
+
+    func gitPull(threadId: ThreadId) async throws -> GitPullResult {
+        guard let api else { throw TransportError.notConnected }
+        return try await api.gitPull(cwd: try gitCWD(for: threadId))
+    }
+
+    func gitListBranches(threadId: ThreadId) async throws -> GitListBranchesResult {
+        guard let api else { throw TransportError.notConnected }
+        return try await api.gitListBranches(cwd: try gitCWD(for: threadId))
+    }
+
+    func gitCheckout(threadId: ThreadId, branch: String) async throws {
+        guard let api else { throw TransportError.notConnected }
+        try await api.gitCheckout(cwd: try gitCWD(for: threadId), branch: branch)
+    }
+
+    func gitRunStackedAction(
+        threadId: ThreadId,
+        action: GitStackedAction,
+        commitMessage: String?,
+        featureBranch: Bool = false
+    ) async throws -> GitRunStackedActionResult {
+        guard let api else { throw TransportError.notConnected }
+        return try await api.gitRunStackedAction(
+            cwd: try gitCWD(for: threadId),
+            action: action,
+            commitMessage: commitMessage,
+            featureBranch: featureBranch
+        )
+    }
+
+    func openTerminal(threadId: ThreadId) async throws {
+        guard let api else { throw TransportError.notConnected }
+        try await api.openTerminal(threadId: threadId, cwd: try terminalCWD(for: threadId))
+    }
+
+    func writeTerminal(threadId: ThreadId, data: String) async throws {
+        guard let api else { throw TransportError.notConnected }
+        try await api.writeTerminal(threadId: threadId, data: data)
+    }
+
+    func clearTerminal(threadId: ThreadId) async throws {
+        guard let api else { throw TransportError.notConnected }
+        try await api.clearTerminal(threadId: threadId)
+    }
+
+    func closeTerminal(threadId: ThreadId) async throws {
+        guard let api else { throw TransportError.notConnected }
+        try await api.closeTerminal(threadId: threadId)
+        terminalSessions.removeValue(forKey: threadId)
+        terminalActivity.removeValue(forKey: threadId)
+        terminalErrors.removeValue(forKey: threadId)
     }
 
     func project(for thread: OrchestrationThread) -> OrchestrationProject? {
@@ -372,7 +498,7 @@ final class SessionStore {
                 return nil
             }
 
-            return .none
+            return .some(.none)
         }
     }
 
@@ -442,6 +568,12 @@ final class SessionStore {
         await api.onDomainEvent { [weak self] event in
             Task { @MainActor [weak self] in
                 self?.handleDomainEvent(event)
+            }
+        }
+
+        await api.onTerminalEvent { [weak self] event in
+            Task { @MainActor [weak self] in
+                self?.handleTerminalEvent(event)
             }
         }
     }
@@ -576,6 +708,9 @@ final class SessionStore {
         selectedThreadId = nil
         streamingMessageId = nil
         streamingText = ""
+        terminalSessions = [:]
+        terminalActivity = [:]
+        terminalErrors = [:]
     }
 
     private func resetConnectionAttempt() {
@@ -636,5 +771,83 @@ final class SessionStore {
             forceAwaitingLoginForDebug()
         }
         #endif
+    }
+
+    private func terminalCWD(for threadId: ThreadId) throws -> String {
+        guard let thread = threads.first(where: { $0.id == threadId }) else {
+            throw TransportError.serverError("Thread unavailable.")
+        }
+        if let worktreePath = thread.worktreePath, !worktreePath.isEmpty {
+            return worktreePath
+        }
+        guard let project = project(for: thread) else {
+            throw TransportError.serverError("Project unavailable.")
+        }
+        return project.workspaceRoot
+    }
+
+    private func gitCWD(for threadId: ThreadId) throws -> String {
+        try terminalCWD(for: threadId)
+    }
+
+    private func handleTerminalEvent(_ event: TerminalEvent) {
+        switch event {
+        case .started(let payload):
+            terminalSessions[payload.threadId] = payload.snapshot
+            terminalErrors[payload.threadId] = nil
+            terminalActivity[payload.threadId] = false
+        case .output(let payload):
+            if var snapshot = terminalSessions[payload.threadId] {
+                snapshot = TerminalSessionSnapshot(
+                    threadId: snapshot.threadId,
+                    terminalId: snapshot.terminalId,
+                    cwd: snapshot.cwd,
+                    status: snapshot.status,
+                    pid: snapshot.pid,
+                    history: snapshot.history + payload.data,
+                    exitCode: snapshot.exitCode,
+                    exitSignal: snapshot.exitSignal,
+                    updatedAt: payload.createdAt
+                )
+                terminalSessions[payload.threadId] = snapshot
+            }
+        case .exited(let payload):
+            if let snapshot = terminalSessions[payload.threadId] {
+                terminalSessions[payload.threadId] = TerminalSessionSnapshot(
+                    threadId: snapshot.threadId,
+                    terminalId: snapshot.terminalId,
+                    cwd: snapshot.cwd,
+                    status: .exited,
+                    pid: snapshot.pid,
+                    history: snapshot.history,
+                    exitCode: payload.exitCode,
+                    exitSignal: payload.exitSignal,
+                    updatedAt: payload.createdAt
+                )
+            }
+            terminalActivity[payload.threadId] = false
+        case .error(let payload):
+            terminalErrors[payload.threadId] = payload.message
+        case .cleared(let payload):
+            if let snapshot = terminalSessions[payload.threadId] {
+                terminalSessions[payload.threadId] = TerminalSessionSnapshot(
+                    threadId: snapshot.threadId,
+                    terminalId: snapshot.terminalId,
+                    cwd: snapshot.cwd,
+                    status: snapshot.status,
+                    pid: snapshot.pid,
+                    history: "",
+                    exitCode: snapshot.exitCode,
+                    exitSignal: snapshot.exitSignal,
+                    updatedAt: payload.createdAt
+                )
+            }
+        case .restarted(let payload):
+            terminalSessions[payload.threadId] = payload.snapshot
+            terminalErrors[payload.threadId] = nil
+            terminalActivity[payload.threadId] = false
+        case .activity(let payload):
+            terminalActivity[payload.threadId] = payload.hasRunningSubprocess
+        }
     }
 }

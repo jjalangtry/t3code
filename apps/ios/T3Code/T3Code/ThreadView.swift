@@ -188,7 +188,6 @@ struct MessageBubble: View {
 
                 Text(message.text.isEmpty && message.streaming ? "Thinking..." : message.text)
                     .font(.body)
-                    .textSelection(.enabled)
                     .padding(12)
                     .background(backgroundColor)
                     .foregroundStyle(foregroundColor)

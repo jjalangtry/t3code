@@ -29,6 +29,12 @@ nonisolated enum InteractionMode: String, Codable, Sendable {
     case plan
 }
 
+nonisolated enum GitStackedAction: String, Codable, Sendable, CaseIterable {
+    case commit
+    case commitPush = "commit_push"
+    case commitPushPR = "commit_push_pr"
+}
+
 // MARK: - Session
 
 nonisolated enum SessionStatus: String, Codable, Sendable {
@@ -207,6 +213,197 @@ nonisolated struct ServerProviderStatus: Codable, Sendable, Identifiable {
 nonisolated struct ServerConfigUpdatedPayload: Codable, Sendable {
     let issues: [JSONValue]
     let providers: [ServerProviderStatus]
+}
+
+// MARK: - Git
+
+nonisolated struct GitWorkingTreeFile: Codable, Sendable, Identifiable {
+    var id: String { path }
+    let path: String
+    let insertions: Int
+    let deletions: Int
+}
+
+nonisolated struct GitWorkingTreeSummary: Codable, Sendable {
+    let files: [GitWorkingTreeFile]
+    let insertions: Int
+    let deletions: Int
+}
+
+nonisolated struct GitStatusPR: Codable, Sendable {
+    let number: Int
+    let title: String
+    let url: String
+    let baseBranch: String
+    let headBranch: String
+    let state: String
+}
+
+nonisolated struct GitStatusResult: Codable, Sendable {
+    let branch: String?
+    let hasWorkingTreeChanges: Bool
+    let workingTree: GitWorkingTreeSummary
+    let hasUpstream: Bool
+    let aheadCount: Int
+    let behindCount: Int
+    let pr: GitStatusPR?
+}
+
+nonisolated struct GitBranch: Codable, Sendable, Identifiable {
+    var id: String {
+        let remote = isRemote == true ? "remote" : "local"
+        return "\(remote):\(name)"
+    }
+
+    let name: String
+    let isRemote: Bool?
+    let remoteName: String?
+    let current: Bool
+    let isDefault: Bool
+    let worktreePath: String?
+}
+
+nonisolated struct GitListBranchesResult: Codable, Sendable {
+    let branches: [GitBranch]
+    let isRepo: Bool
+}
+
+nonisolated struct GitPullResult: Codable, Sendable {
+    let status: String
+    let branch: String
+    let upstreamBranch: String?
+}
+
+nonisolated struct GitActionBranchResult: Codable, Sendable {
+    let status: String
+    let name: String?
+}
+
+nonisolated struct GitActionCommitResult: Codable, Sendable {
+    let status: String
+    let commitSha: String?
+    let subject: String?
+}
+
+nonisolated struct GitActionPushResult: Codable, Sendable {
+    let status: String
+    let branch: String?
+    let upstreamBranch: String?
+    let setUpstream: Bool?
+}
+
+nonisolated struct GitActionPRResult: Codable, Sendable {
+    let status: String
+    let url: String?
+    let number: Int?
+    let baseBranch: String?
+    let headBranch: String?
+    let title: String?
+}
+
+nonisolated struct GitRunStackedActionResult: Codable, Sendable {
+    let action: GitStackedAction
+    let branch: GitActionBranchResult
+    let commit: GitActionCommitResult
+    let push: GitActionPushResult
+    let pr: GitActionPRResult
+}
+
+// MARK: - Terminal
+
+nonisolated enum TerminalSessionStatus: String, Codable, Sendable {
+    case starting
+    case running
+    case exited
+    case error
+}
+
+nonisolated struct TerminalSessionSnapshot: Codable, Sendable {
+    let threadId: ThreadId
+    let terminalId: String
+    let cwd: String
+    let status: TerminalSessionStatus
+    let pid: Int?
+    let history: String
+    let exitCode: Int?
+    let exitSignal: Int?
+    let updatedAt: String
+}
+
+nonisolated struct TerminalStartedEventPayload: Codable, Sendable {
+    let threadId: ThreadId
+    let terminalId: String
+    let createdAt: String
+    let type: String
+    let snapshot: TerminalSessionSnapshot
+}
+
+nonisolated struct TerminalOutputEventPayload: Codable, Sendable {
+    let threadId: ThreadId
+    let terminalId: String
+    let createdAt: String
+    let type: String
+    let data: String
+}
+
+nonisolated struct TerminalExitedEventPayload: Codable, Sendable {
+    let threadId: ThreadId
+    let terminalId: String
+    let createdAt: String
+    let type: String
+    let exitCode: Int?
+    let exitSignal: Int?
+}
+
+nonisolated struct TerminalErrorEventPayload: Codable, Sendable {
+    let threadId: ThreadId
+    let terminalId: String
+    let createdAt: String
+    let type: String
+    let message: String
+}
+
+nonisolated struct TerminalClearedEventPayload: Codable, Sendable {
+    let threadId: ThreadId
+    let terminalId: String
+    let createdAt: String
+    let type: String
+}
+
+nonisolated struct TerminalRestartedEventPayload: Codable, Sendable {
+    let threadId: ThreadId
+    let terminalId: String
+    let createdAt: String
+    let type: String
+    let snapshot: TerminalSessionSnapshot
+}
+
+nonisolated struct TerminalActivityEventPayload: Codable, Sendable {
+    let threadId: ThreadId
+    let terminalId: String
+    let createdAt: String
+    let type: String
+    let hasRunningSubprocess: Bool
+}
+
+nonisolated enum TerminalEvent: Sendable {
+    case started(TerminalStartedEventPayload)
+    case output(TerminalOutputEventPayload)
+    case exited(TerminalExitedEventPayload)
+    case error(TerminalErrorEventPayload)
+    case cleared(TerminalClearedEventPayload)
+    case restarted(TerminalRestartedEventPayload)
+    case activity(TerminalActivityEventPayload)
+}
+
+// MARK: - Composer Attachments
+
+nonisolated struct PendingComposerAttachment: Identifiable, Sendable {
+    let id: String
+    let name: String
+    let mimeType: String
+    let sizeBytes: Int
+    let dataURL: String
 }
 
 // MARK: - Orchestration Event
