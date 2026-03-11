@@ -104,15 +104,6 @@ struct ThreadView: View {
                 .accessibilityLabel("Thread actions")
             }
         }
-        .photosPicker(
-            isPresented: Binding(
-                get: { false },
-                set: { _ in }
-            ),
-            selection: $selectedPhotoItems,
-            maxSelectionCount: 8,
-            matching: .images
-        )
         .onChange(of: selectedPhotoItems) { _, newItems in
             guard !newItems.isEmpty else { return }
             Task {
@@ -520,7 +511,7 @@ private struct ComposerActionRow: View {
             Image(systemName: systemImage)
                 .font(.title3)
                 .frame(width: 24)
-                .foregroundStyle(.accent)
+                .foregroundStyle(Color.accentColor)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.subheadline.weight(.semibold))
@@ -835,8 +826,10 @@ private struct GitSheetView: View {
         do {
             async let gitStatus = store.gitStatus(threadId: threadId)
             async let gitBranches = store.gitListBranches(threadId: threadId)
-            status = try await gitStatus
-            branches = try await gitBranches.branches
+            let resolvedStatus = try await gitStatus
+            let resolvedBranches = try await gitBranches
+            status = resolvedStatus
+            branches = resolvedBranches.branches
             localError = nil
         } catch {
             localError = error.localizedDescription

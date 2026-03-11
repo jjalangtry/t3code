@@ -119,7 +119,7 @@ struct SidebarView: View {
         }
         .onAppear {
             if selectedProjectId == nil {
-                selectedProjectId = store.selectedThread.flatMap { $0.projectId }
+                selectedProjectId = store.selectedThread.map { $0.projectId }
                     ?? store.activeProjects.first?.id
             }
         }
