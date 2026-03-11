@@ -511,7 +511,7 @@ private struct ComposerActionRow: View {
             Image(systemName: systemImage)
                 .font(.title3)
                 .frame(width: 24)
-                .foregroundStyle(Color.accentColor)
+                .foregroundColor(.accentColor)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.subheadline.weight(.semibold))
