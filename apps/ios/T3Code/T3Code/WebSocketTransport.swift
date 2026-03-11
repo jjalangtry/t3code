@@ -61,10 +61,12 @@ actor WebSocketTransport {
             }
 
             group.addTask { [self] in
-                try await withCheckedThrowingContinuation(isolation: self) { (continuation: CheckedContinuation<Void, any Error>) in
-                    self.connectionContinuation = continuation
-                    self.receiveWork = Task { [weak self] in
-                        await self?.receiveLoop(isReconnectAttempt: isReconnectAttempt)
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                    Task { [weak self] in
+                        await self?.installConnectionWaiter(
+                            continuation,
+                            isReconnectAttempt: isReconnectAttempt
+                        )
                     }
                 }
             }
@@ -120,21 +122,15 @@ actor WebSocketTransport {
             throw TransportError.encodingFailed
         }
 
-        return try await withCheckedThrowingContinuation(isolation: self) { (continuation: CheckedContinuation<Any?, any Error>) in
-            let timeoutTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(Self.requestTimeoutSeconds))
-                guard !Task.isCancelled else { return }
-                await self?.handleTimeout(id: id, method: method)
-            }
-
-            pending[id] = PendingRequest(continuation: continuation, timeoutTask: timeoutTask)
-
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Any?, any Error>) in
             Task { [weak self] in
-                do {
-                    try await ws.send(.string(jsonString))
-                } catch {
-                    await self?.failPending(id: id, error: error)
-                }
+                await self?.registerPendingAndSend(
+                    id: id,
+                    method: method,
+                    continuation: continuation,
+                    socket: ws,
+                    payload: jsonString
+                )
             }
         }
     }
@@ -167,6 +163,38 @@ actor WebSocketTransport {
         guard let continuation = connectionContinuation else { return }
         connectionContinuation = nil
         continuation.resume(throwing: error)
+    }
+
+    private func installConnectionWaiter(
+        _ continuation: CheckedContinuation<Void, any Error>,
+        isReconnectAttempt: Bool
+    ) {
+        connectionContinuation = continuation
+        receiveWork = Task { [weak self] in
+            await self?.receiveLoop(isReconnectAttempt: isReconnectAttempt)
+        }
+    }
+
+    private func registerPendingAndSend(
+        id: String,
+        method: String,
+        continuation: CheckedContinuation<Any?, any Error>,
+        socket: URLSessionWebSocketTask,
+        payload: String
+    ) async {
+        let timeoutTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.requestTimeoutSeconds))
+            guard !Task.isCancelled else { return }
+            await self?.handleTimeout(id: id, method: method)
+        }
+
+        pending[id] = PendingRequest(continuation: continuation, timeoutTask: timeoutTask)
+
+        do {
+            try await socket.send(.string(payload))
+        } catch {
+            failPending(id: id, error: error)
+        }
     }
 
     private func receiveLoop(isReconnectAttempt: Bool) async {

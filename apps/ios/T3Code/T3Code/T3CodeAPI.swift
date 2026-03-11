@@ -4,7 +4,7 @@ import Foundation
 
 /// Mirrors the NativeApi from the web client, providing typed methods
 /// for orchestration, git, and server operations.
-final class T3CodeAPI: Sendable {
+nonisolated final class T3CodeAPI: Sendable {
     let transport: WebSocketTransport
 
     init(transport: WebSocketTransport) {
