@@ -13,29 +13,29 @@ typealias CheckpointRef = String
 
 // MARK: - Provider types
 
-enum ProviderKind: String, Codable, Sendable, CaseIterable {
+nonisolated enum ProviderKind: String, Codable, Sendable, CaseIterable {
     case codex
     case claudeCode
     case cursor
 }
 
-enum RuntimeMode: String, Codable, Sendable {
+nonisolated enum RuntimeMode: String, Codable, Sendable {
     case approvalRequired = "approval-required"
     case fullAccess = "full-access"
 }
 
-enum InteractionMode: String, Codable, Sendable {
+nonisolated enum InteractionMode: String, Codable, Sendable {
     case `default`
     case plan
 }
 
 // MARK: - Session
 
-enum SessionStatus: String, Codable, Sendable {
+nonisolated enum SessionStatus: String, Codable, Sendable {
     case idle, starting, running, ready, interrupted, stopped, error
 }
 
-struct OrchestrationSession: Codable, Sendable {
+nonisolated struct OrchestrationSession: Codable, Sendable {
     let threadId: ThreadId
     let status: SessionStatus
     let providerName: String?
@@ -47,11 +47,11 @@ struct OrchestrationSession: Codable, Sendable {
 
 // MARK: - Messages
 
-enum MessageRole: String, Codable, Sendable {
+nonisolated enum MessageRole: String, Codable, Sendable {
     case user, assistant, system
 }
 
-struct ChatAttachment: Codable, Sendable, Identifiable {
+nonisolated struct ChatAttachment: Codable, Sendable, Identifiable {
     let type: String
     let id: String
     let name: String
@@ -59,7 +59,7 @@ struct ChatAttachment: Codable, Sendable, Identifiable {
     let sizeBytes: Int
 }
 
-struct OrchestrationMessage: Codable, Sendable, Identifiable {
+nonisolated struct OrchestrationMessage: Codable, Sendable, Identifiable {
     let id: MessageId
     let role: MessageRole
     let text: String
@@ -72,11 +72,11 @@ struct OrchestrationMessage: Codable, Sendable, Identifiable {
 
 // MARK: - Turn
 
-enum LatestTurnState: String, Codable, Sendable {
+nonisolated enum LatestTurnState: String, Codable, Sendable {
     case running, interrupted, completed, error
 }
 
-struct LatestTurn: Codable, Sendable {
+nonisolated struct LatestTurn: Codable, Sendable {
     let turnId: TurnId
     let state: LatestTurnState
     let requestedAt: String
@@ -87,11 +87,11 @@ struct LatestTurn: Codable, Sendable {
 
 // MARK: - Activities
 
-enum ActivityTone: String, Codable, Sendable {
+nonisolated enum ActivityTone: String, Codable, Sendable {
     case info, tool, approval, error
 }
 
-struct ThreadActivity: Codable, Sendable, Identifiable {
+nonisolated struct ThreadActivity: Codable, Sendable, Identifiable {
     let id: EventId
     let tone: ActivityTone
     let kind: String
@@ -104,14 +104,14 @@ struct ThreadActivity: Codable, Sendable, Identifiable {
 
 // MARK: - Checkpoints
 
-struct CheckpointFile: Codable, Sendable {
+nonisolated struct CheckpointFile: Codable, Sendable {
     let path: String
     let kind: String
     let additions: Int
     let deletions: Int
 }
 
-struct CheckpointSummary: Codable, Sendable {
+nonisolated struct CheckpointSummary: Codable, Sendable {
     let turnId: TurnId
     let checkpointTurnCount: Int
     let checkpointRef: CheckpointRef
@@ -123,7 +123,7 @@ struct CheckpointSummary: Codable, Sendable {
 
 // MARK: - Proposed Plan
 
-struct ProposedPlan: Codable, Sendable, Identifiable {
+nonisolated struct ProposedPlan: Codable, Sendable, Identifiable {
     let id: String
     let turnId: TurnId?
     let planMarkdown: String
@@ -133,7 +133,7 @@ struct ProposedPlan: Codable, Sendable, Identifiable {
 
 // MARK: - Thread
 
-struct OrchestrationThread: Codable, Sendable, Identifiable {
+nonisolated struct OrchestrationThread: Codable, Sendable, Identifiable {
     let id: ThreadId
     let projectId: ProjectId
     let title: String
@@ -155,7 +155,7 @@ struct OrchestrationThread: Codable, Sendable, Identifiable {
 
 // MARK: - Project
 
-struct ProjectScript: Codable, Sendable, Identifiable {
+nonisolated struct ProjectScript: Codable, Sendable, Identifiable {
     let id: String
     let name: String
     let command: String
@@ -163,7 +163,7 @@ struct ProjectScript: Codable, Sendable, Identifiable {
     let runOnWorktreeCreate: Bool
 }
 
-struct OrchestrationProject: Codable, Sendable, Identifiable {
+nonisolated struct OrchestrationProject: Codable, Sendable, Identifiable {
     let id: ProjectId
     let title: String
     let workspaceRoot: String
@@ -176,7 +176,7 @@ struct OrchestrationProject: Codable, Sendable, Identifiable {
 
 // MARK: - Read Model (snapshot)
 
-struct OrchestrationReadModel: Codable, Sendable {
+nonisolated struct OrchestrationReadModel: Codable, Sendable {
     let snapshotSequence: Int
     let projects: [OrchestrationProject]
     let threads: [OrchestrationThread]
@@ -185,7 +185,7 @@ struct OrchestrationReadModel: Codable, Sendable {
 
 // MARK: - Welcome payload
 
-struct WsWelcomePayload: Codable, Sendable {
+nonisolated struct WsWelcomePayload: Codable, Sendable {
     let cwd: String
     let projectName: String
     let bootstrapProjectId: ProjectId?
@@ -194,7 +194,7 @@ struct WsWelcomePayload: Codable, Sendable {
 
 // MARK: - Server config
 
-struct ServerProviderStatus: Codable, Sendable, Identifiable {
+nonisolated struct ServerProviderStatus: Codable, Sendable, Identifiable {
     var id: String { provider }
     let provider: String
     let status: String
@@ -204,14 +204,14 @@ struct ServerProviderStatus: Codable, Sendable, Identifiable {
     let message: String?
 }
 
-struct ServerConfigUpdatedPayload: Codable, Sendable {
+nonisolated struct ServerConfigUpdatedPayload: Codable, Sendable {
     let issues: [JSONValue]
     let providers: [ServerProviderStatus]
 }
 
 // MARK: - Orchestration Event
 
-struct OrchestrationEvent: Codable, Sendable {
+nonisolated struct OrchestrationEvent: Codable, Sendable {
     let sequence: Int
     let eventId: EventId
     let type: String
@@ -225,7 +225,7 @@ struct OrchestrationEvent: Codable, Sendable {
 
 // MARK: - JSONValue (type-safe JSON wrapper)
 
-enum JSONValue: Codable, Sendable, Hashable {
+nonisolated enum JSONValue: Codable, Sendable, Hashable {
     case null
     case bool(Bool)
     case int(Int)

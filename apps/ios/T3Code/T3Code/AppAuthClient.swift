@@ -1,6 +1,6 @@
 import Foundation
 
-enum AppAuthClientError: LocalizedError, Equatable {
+nonisolated enum AppAuthClientError: LocalizedError, Equatable {
     case invalidCredentials(String)
     case server(String)
     case invalidResponse
@@ -9,13 +9,13 @@ enum AppAuthClientError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .invalidCredentials(let message):
-            message
+            return message
         case .server(let message):
-            message
+            return message
         case .invalidResponse:
-            "The server returned an invalid auth response."
+            return "The server returned an invalid auth response."
         case .network(let message):
-            message
+            return message
         }
     }
 }

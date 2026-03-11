@@ -61,7 +61,7 @@ actor WebSocketTransport {
             }
 
             group.addTask { [self] in
-                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                try await withCheckedThrowingContinuation(isolation: self) { (continuation: CheckedContinuation<Void, any Error>) in
                     self.connectionContinuation = continuation
                     self.receiveWork = Task { [weak self] in
                         await self?.receiveLoop(isReconnectAttempt: isReconnectAttempt)
@@ -120,7 +120,7 @@ actor WebSocketTransport {
             throw TransportError.encodingFailed
         }
 
-        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Any?, any Error>) in
+        return try await withCheckedThrowingContinuation(isolation: self) { (continuation: CheckedContinuation<Any?, any Error>) in
             let timeoutTask = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(Self.requestTimeoutSeconds))
                 guard !Task.isCancelled else { return }
@@ -307,17 +307,17 @@ enum TransportError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .encodingFailed:
-            "Failed to encode request."
+            return "Failed to encode request."
         case .timeout(let method):
-            "Request timed out: \(method)"
+            return "Request timed out: \(method)"
         case .serverError(let message):
-            message
+            return message
         case .disposed:
-            "Transport disposed."
+            return "Transport disposed."
         case .notConnected:
-            "Not connected to server."
+            return "Not connected to server."
         case .connectTimeout:
-            "Connection timed out. Check the server host or port and try again."
+            return "Connection timed out. Check the server host or port and try again."
         case .connectionLost(let message):
             return message.isEmpty ? "Connection lost." : message
         }

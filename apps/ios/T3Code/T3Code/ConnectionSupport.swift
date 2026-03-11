@@ -1,11 +1,11 @@
 import Foundation
 
-enum ConnectionMode: String, Codable, Sendable {
+nonisolated enum ConnectionMode: String, Codable, Sendable {
     case appAuth
     case token
 }
 
-enum ConnectionPhase: String, Sendable {
+nonisolated enum ConnectionPhase: String, Sendable {
     case disconnected
     case checkingAuth
     case awaitingLogin
@@ -14,13 +14,13 @@ enum ConnectionPhase: String, Sendable {
     case failed
 }
 
-enum ConnectionAuthContext: Equatable, Sendable {
+nonisolated enum ConnectionAuthContext: Equatable, Sendable {
     case none
     case appSession(String)
     case token(String)
 }
 
-struct ServerEndpoint: Equatable, Sendable {
+nonisolated struct ServerEndpoint: Equatable, Sendable {
     let httpOrigin: URL
 
     func webSocketURL(auth: ConnectionAuthContext) throws -> URL {
@@ -57,7 +57,7 @@ struct ServerEndpoint: Equatable, Sendable {
     }
 }
 
-enum EndpointResolutionError: LocalizedError, Equatable {
+nonisolated enum EndpointResolutionError: LocalizedError, Equatable {
     case emptyHost
     case invalidHost
     case invalidPort
@@ -66,30 +66,30 @@ enum EndpointResolutionError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .emptyHost:
-            "Enter a server hostname or URL."
+            return "Enter a server hostname or URL."
         case .invalidHost:
-            "Enter a valid server hostname or URL."
+            return "Enter a valid server hostname or URL."
         case .invalidPort:
-            "Enter a valid port between 1 and 65535."
+            return "Enter a valid port between 1 and 65535."
         case .invalidURL:
-            "Unable to build a server URL from that value."
+            return "Unable to build a server URL from that value."
         }
     }
 }
 
-enum ConnectionIssue: LocalizedError, Equatable {
+nonisolated enum ConnectionIssue: LocalizedError, Equatable {
     case missingToken
 
     var errorDescription: String? {
         switch self {
         case .missingToken:
-            "Enter an auth token or switch back to app login."
+            return "Enter an auth token or switch back to app login."
         }
     }
 }
 
 struct ConnectionErrorFormatter {
-    static func message(for error: any Error) -> String {
+    nonisolated static func message(for error: any Error) -> String {
         if let urlError = error as? URLError {
             switch urlError.code {
             case .timedOut:
@@ -137,7 +137,7 @@ struct ConnectionErrorFormatter {
     }
 }
 
-enum EndpointResolver {
+nonisolated enum EndpointResolver {
     static func resolve(hostInput: String, portOverride: String) throws -> ServerEndpoint {
         let trimmedHost = hostInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedHost.isEmpty else {
@@ -190,17 +190,17 @@ enum EndpointResolver {
     }
 }
 
-struct AppAuthSessionState: Codable, Sendable, Equatable {
+nonisolated struct AppAuthSessionState: Codable, Sendable, Equatable {
     let authRequired: Bool
     let authenticated: Bool
     let username: String?
 }
 
-struct AppAuthLoginResponse: Codable, Sendable, Equatable {
+nonisolated struct AppAuthLoginResponse: Codable, Sendable, Equatable {
     let session: AppAuthSessionState
     let sessionToken: String
 }
 
-struct AppAuthErrorResponse: Codable, Sendable, Equatable {
+nonisolated struct AppAuthErrorResponse: Codable, Sendable, Equatable {
     let message: String
 }
