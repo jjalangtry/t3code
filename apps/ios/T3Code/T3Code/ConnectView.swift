@@ -9,55 +9,95 @@ struct ConnectView: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("code.jjalangtry.com", text: $store.serverURL)
+                    TextField("code.jjalangtry.com", text: $store.serverHostInput)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
                         .textContentType(.URL)
-
-                    SecureField("Auth Token", text: $store.authToken)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
+                        .disabled(store.isBusy)
+                        .accessibilityIdentifier("server-host-field")
                 } header: {
-                    Text("Server Connection")
+                    Text("Server")
                 } footer: {
-                    Text("Enter your T3 Code server hostname or URL")
+                    Text("Enter the same T3 Code host you open in the browser. Most hosted setups do not need a port.")
+                }
+
+                if store.shouldShowLoginFields {
+                    Section {
+                        TextField("Username", text: $store.authUsername)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .textContentType(.username)
+                            .disabled(store.isBusy)
+                            .accessibilityIdentifier("username-field")
+
+                        SecureField("Password", text: $store.authPassword)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .textContentType(.password)
+                            .disabled(store.isBusy)
+                            .accessibilityIdentifier("password-field")
+                    } header: {
+                        Text("Sign In")
+                    } footer: {
+                        Text("This server requires the same minimal username and password login as the website.")
+                    }
+                }
+
+                Section {
+                    DisclosureGroup("Advanced") {
+                        Toggle(
+                            "Use token instead",
+                            isOn: Binding(
+                                get: { store.connectionMode == .token },
+                                set: { store.connectionMode = $0 ? .token : .appAuth }
+                            )
+                        )
+                        .disabled(store.isBusy)
+                        .accessibilityIdentifier("advanced-token-toggle")
+
+                        TextField("Port Override", text: $store.advancedPortOverride)
+                            .keyboardType(.numberPad)
+                            .disabled(store.isBusy)
+                            .accessibilityIdentifier("port-override-field")
+
+                        if store.shouldShowTokenField {
+                            SecureField("Auth Token", text: $store.authToken)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .disabled(store.isBusy)
+                                .accessibilityIdentifier("auth-token-field")
+                        }
+                    }
+                    .accessibilityIdentifier("advanced-disclosure")
                 }
 
                 if let error = store.connectionError {
                     Section {
-                        Label(error, systemImage: "exclamationmark.triangle")
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(.red)
                     }
                 }
 
                 Section {
-                    Button(action: { store.connect() }) {
+                    Button(action: { store.submitConnection() }) {
                         HStack {
                             Spacer()
-                            if store.isConnecting {
+                            if store.isBusy {
                                 ProgressView()
                                     .controlSize(.small)
                                     .padding(.trailing, 6)
-                                Text("Connecting...")
-                                    .font(.headline)
-                            } else {
-                                Label("Connect", systemImage: "link")
-                                    .font(.headline)
                             }
+                            Text(store.connectButtonLabel)
+                                .font(.headline)
                             Spacer()
                         }
                     }
-                    .disabled(
-                        store.serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            || store.isConnecting
-                    )
+                    .disabled(!store.canSubmitConnection)
+                    .accessibilityIdentifier("connect-button")
                 }
             }
             .navigationTitle("T3 Code")
-        }
-        .onAppear {
-            store.loadSavedConnection()
         }
     }
 }

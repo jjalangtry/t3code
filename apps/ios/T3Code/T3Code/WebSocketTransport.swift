@@ -1,24 +1,28 @@
 import Foundation
 
-// MARK: - WebSocket Transport (Actor)
+enum TransportLifecycleEvent: Sendable, Equatable {
+    case connected(isReconnect: Bool)
+    case connectionLost(message: String?)
+}
 
-/// Low-level WebSocket transport matching the T3 Code server protocol.
-/// Uses Swift actor isolation for thread-safe state management.
 actor WebSocketTransport {
     private var webSocketTask: URLSessionWebSocketTask?
-    private let session = URLSession(configuration: .default)
+    private let session: URLSession
     private var nextId: Int = 1
     private var pending: [String: PendingRequest] = [:]
     private var pushListeners: [String: [@Sendable (Any) -> Void]] = [:]
     private var reconnectAttempt: Int = 0
     private var reconnectWork: Task<Void, Never>?
-    private var disposed = false
     private var receiveWork: Task<Void, Never>?
     private var connectionContinuation: CheckedContinuation<Void, any Error>?
+    private var lifecycleHandler: (@Sendable (TransportLifecycleEvent) -> Void)?
+    private var manuallyDisconnected = false
+    private var hasConnectedSuccessfully = false
 
     private let url: URL
 
-    private static let requestTimeoutSeconds: TimeInterval = 30
+    private static let requestTimeoutSeconds: TimeInterval = 15
+    private static let connectTimeoutSeconds: TimeInterval = 10
     private static let reconnectDelays: [TimeInterval] = [0.5, 1, 2, 4, 8]
 
     struct PendingRequest {
@@ -26,59 +30,68 @@ actor WebSocketTransport {
         let timeoutTask: Task<Void, Never>
     }
 
-    init(url: URL) {
+    init(url: URL, session: URLSession = URLSession(configuration: .default)) {
         self.url = url
+        self.session = session
     }
 
-    // MARK: - Lifecycle
+    func setLifecycleHandler(_ handler: @escaping @Sendable (TransportLifecycleEvent) -> Void) {
+        lifecycleHandler = handler
+    }
 
-    /// Connects and waits for the WebSocket handshake to complete.
-    /// Throws if the connection fails.
     func connect() async throws {
-        guard !disposed else { throw TransportError.disposed }
+        guard !manuallyDisconnected else { throw TransportError.disposed }
+
+        reconnectWork?.cancel()
+        reconnectWork = nil
+        receiveWork?.cancel()
+        receiveWork = nil
+        webSocketTask?.cancel(with: .goingAway, reason: nil)
 
         let task = session.webSocketTask(with: url)
         webSocketTask = task
         task.resume()
-        reconnectAttempt = 0
+        let isReconnectAttempt = hasConnectedSuccessfully
 
-        // Wait for the first successful receive to confirm the connection is alive.
-        // URLSessionWebSocketTask doesn't have a connect callback — the first
-        // successful receive() proves the handshake completed.
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            self.connectionContinuation = continuation
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask { [weak self] in
+                try await Task.sleep(for: .seconds(Self.connectTimeoutSeconds))
+                await self?.failConnectionWaiter(with: TransportError.connectTimeout)
+                throw TransportError.connectTimeout
+            }
 
-            receiveWork?.cancel()
-            receiveWork = Task { [weak self] in
-                await self?.receiveLoop()
+            group.addTask { [self] in
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                    self.connectionContinuation = continuation
+                    self.receiveWork = Task { [weak self] in
+                        await self?.receiveLoop(isReconnectAttempt: isReconnectAttempt)
+                    }
+                }
+            }
+
+            do {
+                _ = try await group.next()
+                group.cancelAll()
+            } catch {
+                group.cancelAll()
+                throw error
             }
         }
     }
 
     func disconnect() {
-        disposed = true
+        manuallyDisconnected = true
         reconnectWork?.cancel()
         reconnectWork = nil
         receiveWork?.cancel()
         receiveWork = nil
 
-        if let cc = connectionContinuation {
-            connectionContinuation = nil
-            cc.resume(throwing: TransportError.disposed)
-        }
-
-        for (id, req) in pending {
-            req.timeoutTask.cancel()
-            req.continuation.resume(throwing: TransportError.disposed)
-            pending.removeValue(forKey: id)
-        }
-        pending.removeAll()
+        failConnectionWaiter(with: TransportError.disposed)
+        failAllPending(with: TransportError.disposed)
 
         webSocketTask?.cancel(with: .normalClosure, reason: nil)
         webSocketTask = nil
     }
-
-    // MARK: - Request / Response
 
     func request<T: Decodable>(_ method: String, params: [String: Any]? = nil) async throws -> T {
         let result = try await requestRaw(method, params: params)
@@ -107,9 +120,6 @@ actor WebSocketTransport {
             throw TransportError.encodingFailed
         }
 
-        // Send synchronously — don't fire-and-forget into a Task
-        try await ws.send(.string(jsonString))
-
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Any?, any Error>) in
             let timeoutTask = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(Self.requestTimeoutSeconds))
@@ -118,6 +128,14 @@ actor WebSocketTransport {
             }
 
             pending[id] = PendingRequest(continuation: continuation, timeoutTask: timeoutTask)
+
+            Task { [weak self] in
+                do {
+                    try await ws.send(.string(jsonString))
+                } catch {
+                    await self?.failPending(id: id, error: error)
+                }
+            }
         }
     }
 
@@ -125,15 +143,33 @@ actor WebSocketTransport {
         _ = try await requestRaw(method, params: params)
     }
 
-    // MARK: - Push subscriptions
-
     func subscribe(_ channel: String, listener: @escaping @Sendable (Any) -> Void) {
         pushListeners[channel, default: []].append(listener)
     }
 
-    // MARK: - Internals
+    private func failPending(id: String, error: any Error) {
+        guard let req = pending.removeValue(forKey: id) else { return }
+        req.timeoutTask.cancel()
+        req.continuation.resume(throwing: error)
+    }
 
-    private func receiveLoop() async {
+    private func failAllPending(with error: any Error) {
+        guard !pending.isEmpty else { return }
+        let requests = Array(pending.values)
+        pending.removeAll()
+        for request in requests {
+            request.timeoutTask.cancel()
+            request.continuation.resume(throwing: error)
+        }
+    }
+
+    private func failConnectionWaiter(with error: any Error) {
+        guard let continuation = connectionContinuation else { return }
+        connectionContinuation = nil
+        continuation.resume(throwing: error)
+    }
+
+    private func receiveLoop(isReconnectAttempt: Bool) async {
         guard let ws = webSocketTask else { return }
         var firstMessage = true
 
@@ -141,41 +177,58 @@ actor WebSocketTransport {
             do {
                 let message = try await ws.receive()
 
-                // First successful receive = connection is alive
                 if firstMessage {
                     firstMessage = false
-                    if let cc = connectionContinuation {
+                    hasConnectedSuccessfully = true
+                    reconnectAttempt = 0
+                    if let continuation = connectionContinuation {
                         connectionContinuation = nil
-                        cc.resume()
+                        continuation.resume()
                     }
+                    lifecycleHandler?(.connected(isReconnect: isReconnectAttempt))
                 }
 
                 let text: String?
                 switch message {
-                case .string(let s):
-                    text = s
-                case .data(let d):
-                    text = String(data: d, encoding: .utf8)
+                case .string(let string):
+                    text = string
+                case .data(let data):
+                    text = String(data: data, encoding: .utf8)
                 @unknown default:
                     text = nil
                 }
+
                 if let text {
                     handleMessage(text)
                 }
             } catch {
-                // If we never got the first message, fail the connection
-                if let cc = connectionContinuation {
-                    connectionContinuation = nil
-                    cc.resume(throwing: error)
+                if connectionContinuation != nil {
+                    failConnectionWaiter(with: error)
+                    cleanupAfterDisconnect()
                     return
                 }
 
-                if !disposed {
-                    scheduleReconnect()
+                cleanupAfterDisconnect()
+
+                let message = ConnectionErrorFormatter.message(for: error)
+                failAllPending(with: TransportError.connectionLost(message))
+
+                if manuallyDisconnected || !hasConnectedSuccessfully {
+                    return
                 }
+
+                lifecycleHandler?(.connectionLost(message: message))
+                scheduleReconnect()
                 return
             }
         }
+    }
+
+    private func cleanupAfterDisconnect() {
+        receiveWork?.cancel()
+        receiveWork = nil
+        webSocketTask?.cancel(with: .goingAway, reason: nil)
+        webSocketTask = nil
     }
 
     private func handleMessage(_ raw: String) {
@@ -184,7 +237,6 @@ actor WebSocketTransport {
             return
         }
 
-        // Push event
         if let type = json["type"] as? String, type == "push",
            let channel = json["channel"] as? String {
             let payload = json["data"] as Any
@@ -196,7 +248,6 @@ actor WebSocketTransport {
             return
         }
 
-        // Response to a request
         guard let id = json["id"] as? String,
               let req = pending.removeValue(forKey: id) else {
             return
@@ -213,38 +264,62 @@ actor WebSocketTransport {
 
     private func handleTimeout(id: String, method: String) {
         guard let req = pending.removeValue(forKey: id) else { return }
+        req.timeoutTask.cancel()
         req.continuation.resume(throwing: TransportError.timeout(method))
     }
 
     private func scheduleReconnect() {
-        guard !disposed else { return }
+        guard !manuallyDisconnected else { return }
+        guard reconnectWork == nil else { return }
+
         let delay = Self.reconnectDelays[min(reconnectAttempt, Self.reconnectDelays.count - 1)]
         reconnectAttempt += 1
 
         reconnectWork = Task { [weak self] in
             try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled else { return }
-            _ = try? await self?.connect()
+            await self?.attemptReconnect()
+        }
+    }
+
+    private func attemptReconnect() async {
+        reconnectWork = nil
+        guard !manuallyDisconnected else { return }
+
+        do {
+            try await connect()
+        } catch {
+            guard !manuallyDisconnected else { return }
+            scheduleReconnect()
         }
     }
 }
 
-// MARK: - Errors
-
-enum TransportError: LocalizedError {
+enum TransportError: LocalizedError, Equatable {
     case encodingFailed
     case timeout(String)
     case serverError(String)
     case disposed
     case notConnected
+    case connectTimeout
+    case connectionLost(String)
 
     var errorDescription: String? {
         switch self {
-        case .encodingFailed: return "Failed to encode request"
-        case .timeout(let method): return "Request timed out: \(method)"
-        case .serverError(let message): return message
-        case .disposed: return "Transport disposed"
-        case .notConnected: return "Not connected to server"
+        case .encodingFailed:
+            "Failed to encode request."
+        case .timeout(let method):
+            "Request timed out: \(method)"
+        case .serverError(let message):
+            message
+        case .disposed:
+            "Transport disposed."
+        case .notConnected:
+            "Not connected to server."
+        case .connectTimeout:
+            "Connection timed out. Check the server host or port and try again."
+        case .connectionLost(let message):
+            return message.isEmpty ? "Connection lost." : message
         }
     }
 }
