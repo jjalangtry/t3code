@@ -348,6 +348,14 @@ export function projectEvent(
           return nextBase;
         }
 
+        const sessionProvider =
+          thread.session?.providerName === "codex" ||
+          thread.session?.providerName === "claudeCode" ||
+          thread.session?.providerName === "cursor"
+            ? thread.session.providerName
+            : undefined;
+        const messageProvider =
+          payload.provider ?? (payload.role === "assistant" ? sessionProvider : undefined);
         const message: OrchestrationMessage = yield* decodeForEvent(
           OrchestrationMessage,
           {
@@ -357,6 +365,7 @@ export function projectEvent(
             ...(payload.attachments !== undefined ? { attachments: payload.attachments } : {}),
             turnId: payload.turnId,
             streaming: payload.streaming,
+            ...(messageProvider !== undefined ? { provider: messageProvider } : {}),
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
           },

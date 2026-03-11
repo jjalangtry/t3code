@@ -2,7 +2,8 @@ import Foundation
 
 enum TransportLifecycleEvent: Sendable, Equatable {
     case connected(isReconnect: Bool)
-    case connectionLost(message: String?)
+    case connectionLost(message: String?, willReconnect: Bool)
+    case disconnected(isManual: Bool)
 }
 
 actor WebSocketTransport {
@@ -93,6 +94,7 @@ actor WebSocketTransport {
 
         webSocketTask?.cancel(with: .normalClosure, reason: nil)
         webSocketTask = nil
+        lifecycleHandler?(.disconnected(isManual: true))
     }
 
     func request<T: Decodable>(_ method: String, params: [String: Any]? = nil) async throws -> T {
@@ -245,7 +247,7 @@ actor WebSocketTransport {
                     return
                 }
 
-                lifecycleHandler?(.connectionLost(message: message))
+                lifecycleHandler?(.connectionLost(message: message, willReconnect: true))
                 scheduleReconnect()
                 return
             }

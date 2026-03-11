@@ -2,12 +2,25 @@ import SwiftUI
 
 struct ConnectView: View {
     @Environment(SessionStore.self) private var store
+    @State private var isAdvancedExpanded = false
 
     var body: some View {
         @Bindable var store = store
 
         NavigationStack {
             Form {
+                if store.phase == .checkingAuth {
+                    Section {
+                        LabeledContent("Status", value: "Checking sign-in requirements…")
+                    }
+                } else if store.phase == .awaitingLogin {
+                    Section {
+                        LabeledContent("Status", value: "Sign-in required")
+                    } footer: {
+                        Text("Use the same username and password that work in the browser for this host.")
+                    }
+                }
+
                 Section {
                     TextField("code.jjalangtry.com", text: $store.serverHostInput)
                         .textInputAutocapitalization(.never)
@@ -45,7 +58,7 @@ struct ConnectView: View {
                 }
 
                 Section {
-                    DisclosureGroup("Advanced") {
+                    DisclosureGroup("Advanced", isExpanded: $isAdvancedExpanded) {
                         Toggle(
                             "Use token instead",
                             isOn: Binding(

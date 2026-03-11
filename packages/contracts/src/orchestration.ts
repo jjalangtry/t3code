@@ -145,6 +145,7 @@ export const OrchestrationMessage = Schema.Struct({
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
+  provider: Schema.optional(ProviderKind),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -656,6 +657,7 @@ export const ThreadMessageSentPayload = Schema.Struct({
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
+  provider: Schema.optional(ProviderKind),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });

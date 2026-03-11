@@ -791,10 +791,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
       activeThread.messages.length > 0 ||
       activeThread.session !== null),
   );
-  const lockedProvider: ProviderKind | null = hasThreadStarted
+  const isTurnActive = activeThread?.latestTurn !== null && !latestTurnSettled;
+  const lockedProvider: ProviderKind | null = isTurnActive
     ? (sessionProvider ?? selectedProviderByThreadId ?? null)
     : null;
   const selectedProvider: ProviderKind = lockedProvider ?? selectedProviderByThreadId ?? "codex";
+  const isProviderSwitch =
+    hasThreadStarted && sessionProvider !== null && selectedProvider !== sessionProvider;
   const baseThreadModel = resolveModelSlugForProvider(
     selectedProvider,
     activeThread?.model ?? activeProject?.model ?? getDefaultModel(selectedProvider),
@@ -3849,6 +3852,19 @@ export default function ChatView({ threadId }: ChatViewProps) {
                   />
                 </div>
 
+                {/* Provider switch hint */}
+                {isProviderSwitch && (
+                  <p className="px-3 pb-1 text-xs text-muted-foreground/70">
+                    Switching to{" "}
+                    {selectedProvider === "codex"
+                      ? "Codex"
+                      : selectedProvider === "claudeCode"
+                        ? "Claude Code"
+                        : "Cursor"}{" "}
+                    — prior conversation context will be shared.
+                  </p>
+                )}
+
                 {/* Bottom toolbar */}
                 {activePendingApproval ? (
                   <div className="flex items-center justify-end gap-2 px-2.5 pb-2.5 sm:px-3 sm:pb-3">
@@ -5384,6 +5400,16 @@ const MessagesTimeline = memo(function MessagesTimeline({
     useAnimationFrameWithResizeObserver: true,
     overscan: 8,
   });
+  const usedMultipleProviders = useMemo(() => {
+    const providers = new Set<string>();
+    for (const entry of timelineEntries) {
+      if (entry.kind === "message" && entry.message.role === "assistant" && entry.message.provider) {
+        providers.add(entry.message.provider);
+      }
+    }
+    return providers.size > 1;
+  }, [timelineEntries]);
+
   useEffect(() => {
     if (timelineWidthPx === null) return;
     rowVirtualizer.measure();
@@ -5604,7 +5630,19 @@ const MessagesTimeline = memo(function MessagesTimeline({
                 <div className="my-3 flex items-center gap-3">
                   <span className="h-px flex-1 bg-border" />
                   <span className="rounded-full border border-border bg-background px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/80">
-                    {completionSummary ? `Response • ${completionSummary}` : "Response"}
+                    {[
+                      "Response",
+                      completionSummary,
+                      usedMultipleProviders && row.message.provider
+                        ? row.message.provider === "codex"
+                          ? "Codex"
+                          : row.message.provider === "claudeCode"
+                            ? "Claude Code"
+                            : "Cursor"
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" • ")}
                   </span>
                   <span className="h-px flex-1 bg-border" />
                 </div>

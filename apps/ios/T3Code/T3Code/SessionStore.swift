@@ -11,6 +11,7 @@ final class SessionStore {
     var authUsername: String = ""
     var authPassword: String = ""
     var authToken: String = ""
+    var appAuthSessionToken: String = ""
     var connectionError: String?
     var phase: ConnectionPhase = .disconnected
     var authSessionState: AppAuthSessionState?
@@ -127,6 +128,11 @@ final class SessionStore {
             SecureStore.readString(
                 service: Self.secureStoreService,
                 account: Self.authTokenAccount
+            ) ?? ""
+        appAuthSessionToken =
+            SecureStore.readString(
+                service: Self.secureStoreService,
+                account: Self.appAuthSessionTokenAccount
             ) ?? ""
     }
 
@@ -398,6 +404,27 @@ final class SessionStore {
         }
     }
 
+    private func persistAppAuthSessionToken(_ token: String) {
+        let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        appAuthSessionToken = trimmedToken
+        if trimmedToken.isEmpty {
+            SecureStore.deleteString(
+                service: Self.secureStoreService,
+                account: Self.appAuthSessionTokenAccount
+            )
+            return
+        }
+        SecureStore.writeString(
+            trimmedToken,
+            service: Self.secureStoreService,
+            account: Self.appAuthSessionTokenAccount
+        )
+    }
+
+    private func clearPersistedAppAuthSessionToken() {
+        persistAppAuthSessionToken("")
+    }
+
     private func signInAndConnect() {
         guard !isBusy else { return }
 
@@ -437,11 +464,7 @@ final class SessionStore {
                 )
                 guard self.isCurrentAttempt(attemptID) else { return }
 
-                SecureStore.writeString(
-                    loginResponse.sessionToken,
-                    service: Self.secureStoreService,
-                    account: Self.appAuthSessionTokenAccount
-                )
+                self.persistAppAuthSessionToken(loginResponse.sessionToken)
                 self.authSessionState = loginResponse.session
                 self.authPassword = ""
 
@@ -471,28 +494,20 @@ final class SessionStore {
             return .token(token)
 
         case .appAuth:
-            let storedSessionToken = SecureStore.readString(
-                service: Self.secureStoreService,
-                account: Self.appAuthSessionTokenAccount
-            )
             let sessionState = try await authClient.fetchSession(
                 origin: endpoint.httpOrigin,
-                sessionToken: storedSessionToken
+                sessionToken: appAuthSessionToken
             )
             guard isCurrentAttempt(attemptID) else { return nil }
 
             authSessionState = sessionState
             if sessionState.authRequired {
                 if sessionState.authenticated,
-                   let storedSessionToken,
-                   !storedSessionToken.isEmpty {
-                    return .appSession(storedSessionToken)
+                   !appAuthSessionToken.isEmpty {
+                    return .appSession(appAuthSessionToken)
                 }
 
-                SecureStore.deleteString(
-                    service: Self.secureStoreService,
-                    account: Self.appAuthSessionTokenAccount
-                )
+                clearPersistedAppAuthSessionToken()
                 phase = .awaitingLogin
                 connectionError = nil
                 return nil
@@ -585,14 +600,18 @@ final class SessionStore {
                 connectionError = nil
                 scheduleSnapshotSync(delayNanoseconds: 0)
             }
-        case .connectionLost:
+        case .connectionLost(let message, let willReconnect):
+            if willReconnect {
+                connectionError = message
+            }
+        case .disconnected:
             break
         }
     }
 
     private func scheduleSnapshotSync(delayNanoseconds: UInt64 = 100_000_000) {
         guard api != nil else { return }
-        guard snapshotThrottleTask == nil else { return }
+        snapshotThrottleTask?.cancel()
 
         snapshotThrottleTask = Task { @MainActor [weak self] in
             if delayNanoseconds > 0 {
@@ -747,14 +766,16 @@ final class SessionStore {
            let transportError = error as? TransportError,
            case .serverError(let message) = transportError,
            message.localizedCaseInsensitiveContains("unauthorized") {
-            SecureStore.deleteString(
-                service: Self.secureStoreService,
-                account: Self.appAuthSessionTokenAccount
-            )
+            clearPersistedAppAuthSessionToken()
             authSessionState = AppAuthSessionState(authRequired: true, authenticated: false, username: nil)
             phase = .awaitingLogin
         } else if let appAuthError = error as? AppAuthClientError,
                   case .invalidCredentials = appAuthError {
+            phase = .awaitingLogin
+        } else if let appAuthError = error as? AppAuthClientError,
+                  case .expiredSession = appAuthError {
+            clearPersistedAppAuthSessionToken()
+            authSessionState = AppAuthSessionState(authRequired: true, authenticated: false, username: nil)
             phase = .awaitingLogin
         } else if connectionMode == .appAuth, authSessionState?.authRequired == true {
             phase = .awaitingLogin
@@ -762,7 +783,7 @@ final class SessionStore {
             phase = .failed
         }
 
-        connectionError = ConnectionErrorFormatter.message(for: error)
+        connectionError = ConnectionErrorFormatter.message(for: error, connectionMode: connectionMode)
     }
 
     private func applyDebugOverridesIfNeeded() {

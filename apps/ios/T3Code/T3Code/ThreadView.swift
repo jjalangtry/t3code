@@ -8,6 +8,7 @@ private let imageOnlyBootstrapPrompt =
 struct ThreadView: View {
     @Environment(SessionStore.self) private var store
     let threadId: ThreadId
+    private let bottomAnchorId = "thread-bottom-anchor"
 
     @State private var composerText = ""
     @State private var isSending = false
@@ -26,6 +27,11 @@ struct ThreadView: View {
         thread?.session?.status == .running
     }
 
+    private var timelineItems: [ThreadTimelineItem] {
+        guard let thread else { return [] }
+        return ThreadTimelineItem.build(from: thread)
+    }
+
     private var canSend: Bool {
         let hasText = !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         return (hasText || !selectedAttachments.isEmpty) && !isSending
@@ -36,31 +42,37 @@ struct ThreadView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
-                        if let thread {
-                            ForEach(thread.messages) { message in
-                                MessageBubble(message: message)
-                                    .id(message.id)
-                            }
-
-                            if let turnId = thread.session?.activeTurnId ?? thread.latestTurn?.turnId {
-                                let turnActivities = thread.activities
-                                    .filter { $0.turnId == turnId }
-                                    .sorted { ($0.sequence ?? 0) < ($1.sequence ?? 0) }
-
-                                if !turnActivities.isEmpty {
-                                    ActivityLogView(activities: turnActivities)
-                                }
+                        ForEach(timelineItems) { item in
+                            switch item {
+                            case .message(let message):
+                                MessageBubble(
+                                    message: message,
+                                    overrideText: store.streamingMessageId == message.id ? store.streamingText : nil
+                                )
+                                .id(item.id)
+                            case .activity(let activity):
+                                ActivityTimelineRow(activity: activity)
+                                    .id(item.id)
                             }
                         }
+                        Color.clear
+                            .frame(height: 1)
+                            .id(bottomAnchorId)
                     }
                     .padding()
                 }
-                .onChange(of: thread?.messages.count ?? 0) { _, _ in
-                    if let lastId = thread?.messages.last?.id {
-                        withAnimation {
-                            proxy.scrollTo(lastId, anchor: .bottom)
-                        }
-                    }
+                .defaultScrollAnchor(.bottom)
+                .onAppear {
+                    scrollToBottom(proxy, animated: false)
+                }
+                .onChange(of: timelineItems.last?.id) { _, _ in
+                    scrollToBottom(proxy, animated: true)
+                }
+                .onChange(of: store.streamingText) { _, _ in
+                    scrollToBottom(proxy, animated: false)
+                }
+                .onChange(of: threadId) { _, _ in
+                    scrollToBottom(proxy, animated: false)
                 }
             }
 
@@ -460,6 +472,16 @@ struct ThreadView: View {
             return nil
         }
         return type.preferredMIMEType
+    }
+
+    private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool) {
+        if animated {
+            withAnimation {
+                proxy.scrollTo(bottomAnchorId, anchor: .bottom)
+            }
+        } else {
+            proxy.scrollTo(bottomAnchorId, anchor: .bottom)
+        }
     }
 }
 
@@ -883,6 +905,23 @@ private struct GitSheetView: View {
 
 struct MessageBubble: View {
     let message: OrchestrationMessage
+    let overrideText: String?
+
+    init(message: OrchestrationMessage, overrideText: String? = nil) {
+        self.message = message
+        self.overrideText = overrideText
+    }
+
+    private var displayedText: String {
+        let liveText = overrideText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !liveText.isEmpty {
+            return liveText
+        }
+        if message.text.isEmpty && message.streaming {
+            return "Thinking..."
+        }
+        return message.text
+    }
 
     var body: some View {
         HStack {
@@ -905,7 +944,7 @@ struct MessageBubble: View {
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(message.text.isEmpty && message.streaming ? "Thinking..." : message.text)
+                    Text(displayedText)
                         .font(.body)
 
                     if let attachments = message.attachments, !attachments.isEmpty {
@@ -955,39 +994,56 @@ struct MessageBubble: View {
     }
 }
 
-struct ActivityLogView: View {
-    let activities: [ThreadActivity]
+struct ActivityTimelineRow: View {
+    let activity: ThreadTimelineActivity
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(activities) { activity in
+        HStack {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: iconName(for: activity))
                         .font(.caption)
                         .foregroundStyle(iconColor(for: activity))
                         .frame(width: 16)
 
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 4) {
                         Text(activity.summary)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.primary)
 
-                        if let detail = extractDetail(from: activity) {
-                            Text(detail)
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
+                        if let command = activity.command {
+                            Text(command)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.secondary)
                                 .lineLimit(2)
+                        } else if let detail = activity.detail {
+                            Text(detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(3)
                         }
+
+                        if !activity.changedFiles.isEmpty {
+                            Text(activity.changedFiles.joined(separator: "\n"))
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(4)
+                        }
+
+                        Text(formatTime(activity.createdAt))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
                     }
                 }
             }
+            .padding(12)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            Spacer(minLength: 60)
         }
-        .padding(10)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
-    private func iconName(for activity: ThreadActivity) -> String {
+    private func iconName(for activity: ThreadTimelineActivity) -> String {
         switch activity.tone {
         case .info: "info.circle"
         case .tool: "wrench.and.screwdriver"
@@ -996,7 +1052,7 @@ struct ActivityLogView: View {
         }
     }
 
-    private func iconColor(for activity: ThreadActivity) -> Color {
+    private func iconColor(for activity: ThreadTimelineActivity) -> Color {
         switch activity.tone {
         case .info: .blue
         case .tool: .orange
@@ -1005,9 +1061,14 @@ struct ActivityLogView: View {
         }
     }
 
-    private func extractDetail(from activity: ThreadActivity) -> String? {
-        activity.payload?["detail"]?.stringValue
-            ?? activity.payload?["text"]?.stringValue
-            ?? activity.payload?["status"]?.stringValue
+    private func formatTime(_ iso: String) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let date = formatter.date(from: iso) ?? ISO8601DateFormatter().date(from: iso) else {
+            return ""
+        }
+        let timeFormatter = DateFormatter()
+        timeFormatter.timeStyle = .short
+        return timeFormatter.string(from: date)
     }
 }

@@ -49,6 +49,7 @@ export interface ChatMessage {
   createdAt: string;
   completedAt?: string | undefined;
   streaming: boolean;
+  provider?: ProviderKind | undefined;
 }
 
 export interface ProposedPlan {

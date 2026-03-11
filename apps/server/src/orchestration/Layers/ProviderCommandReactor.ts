@@ -3,6 +3,7 @@ import {
   CommandId,
   EventId,
   type OrchestrationEvent,
+  type OrchestrationMessage,
   type ProviderModelOptions,
   type ProviderKind,
   type ProviderStartOptions,
@@ -197,6 +198,35 @@ const make = Effect.gen(function* () {
     return readModel.threads.find((entry) => entry.id === threadId);
   });
 
+  const MAX_CONTEXT_TRANSFER_CHARS = 80_000;
+
+  function buildContextTransferBlock(
+    messages: ReadonlyArray<OrchestrationMessage>,
+    fromProvider: ProviderKind,
+    toProvider: ProviderKind,
+  ): string {
+    const visible = messages.filter((m) => m.role !== "system" && m.text.trim().length > 0);
+    let history = visible
+      .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text.trim()}`)
+      .join("\n\n");
+
+    if (history.length > MAX_CONTEXT_TRANSFER_CHARS) {
+      const first = `User: ${visible[0]!.text.trim()}`;
+      const tail = visible
+        .slice(-6)
+        .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text.trim()}`)
+        .join("\n\n");
+      history = `${first}\n\n[... earlier conversation omitted for length ...]\n\n${tail}`;
+    }
+
+    return [
+      `[Context transfer: This conversation began with ${fromProvider} and is continuing with you (${toProvider}).`,
+      `Conversation history:\n`,
+      history,
+      `\nPlease continue naturally from where the previous assistant left off.]`,
+    ].join("\n");
+  }
+
   const ensureSessionForThread = Effect.fnUntraced(function* (
     threadId: ThreadId,
     createdAt: string,
@@ -338,6 +368,13 @@ const make = Effect.gen(function* () {
     if (!thread) {
       return;
     }
+    const sessionProviderName = thread.session?.providerName;
+    const providerBefore: ProviderKind | undefined =
+      sessionProviderName === "codex" ||
+      sessionProviderName === "claudeCode" ||
+      sessionProviderName === "cursor"
+        ? sessionProviderName
+        : undefined;
     if (input.providerOptions !== undefined) {
       threadProviderOptions.set(input.threadId, input.providerOptions);
     }
@@ -347,7 +384,16 @@ const make = Effect.gen(function* () {
       ...(input.modelOptions !== undefined ? { modelOptions: input.modelOptions } : {}),
       ...(input.providerOptions !== undefined ? { providerOptions: input.providerOptions } : {}),
     });
-    const normalizedInput = toNonEmptyProviderInput(input.messageText);
+    const didSwitch =
+      input.provider !== undefined &&
+      providerBefore !== undefined &&
+      input.provider !== providerBefore &&
+      thread.messages.length > 0;
+    let normalizedInput = toNonEmptyProviderInput(input.messageText);
+    if (didSwitch) {
+      const contextBlock = buildContextTransferBlock(thread.messages, providerBefore, input.provider!);
+      normalizedInput = normalizedInput ? `${contextBlock}\n\n${normalizedInput}` : contextBlock;
+    }
     const normalizedAttachments = input.attachments ?? [];
     const activeSession = yield* providerService.listSessions().pipe(
       Effect.map((sessions) => sessions.find((session) => session.threadId === input.threadId)),

@@ -89,15 +89,15 @@ nonisolated enum ConnectionIssue: LocalizedError, Equatable {
 }
 
 struct ConnectionErrorFormatter {
-    nonisolated static func message(for error: any Error) -> String {
+    nonisolated static func message(for error: any Error, connectionMode: ConnectionMode? = nil) -> String {
         if let urlError = error as? URLError {
             switch urlError.code {
             case .timedOut:
-                return "Connection timed out. Check the server host or port and try again."
+                return "Connection timed out. Check the server and try again."
             case .cannotFindHost, .dnsLookupFailed:
                 return "The server host could not be found."
             case .cannotConnectToHost:
-                return "Could not reach the server. Check the host and port."
+                return "Could not reach the server. Check the host or advanced port override."
             case .notConnectedToInternet:
                 return "This device appears to be offline."
             case .networkConnectionLost:
@@ -110,8 +110,15 @@ struct ConnectionErrorFormatter {
         if let transportError = error as? TransportError {
             switch transportError {
             case .serverError(let message):
-                if message.localizedCaseInsensitiveContains("unauthorized websocket connection") {
-                    return "Authorization failed. Sign in again or check the auth token."
+                if message.localizedCaseInsensitiveContains("unauthorized") {
+                    switch connectionMode {
+                    case .token:
+                        return "That auth token was rejected."
+                    case .appAuth:
+                        return "Your sign-in session expired. Sign in again."
+                    case .none:
+                        return "Authorization failed. Sign in again or check the auth token."
+                    }
                 }
                 if message.localizedCaseInsensitiveContains("orchestration.getSnapshot") {
                     return "Connected, but the server was too slow to return the initial snapshot."
@@ -123,6 +130,21 @@ struct ConnectionErrorFormatter {
                 }
             default:
                 break
+            }
+        }
+
+        if let appAuthError = error as? AppAuthClientError {
+            switch appAuthError {
+            case .invalidCredentials(let message):
+                return message
+            case .expiredSession:
+                return "Your saved session expired. Sign in again."
+            case .server(let message):
+                return message
+            case .invalidResponse:
+                return "The server returned an invalid auth response."
+            case .network(let message):
+                return message
             }
         }
 

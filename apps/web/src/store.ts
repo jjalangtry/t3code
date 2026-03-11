@@ -289,6 +289,7 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
             streaming: message.streaming,
             ...(message.streaming ? {} : { completedAt: message.updatedAt }),
             ...(attachments && attachments.length > 0 ? { attachments } : {}),
+            ...(message.provider !== undefined ? { provider: message.provider } : {}),
           };
           return normalizedMessage;
         }),
