@@ -53,6 +53,7 @@ import { GitCore } from "./git/Services/GitCore.ts";
 import { GitCommandError, GitManagerError } from "./git/Errors.ts";
 import { MigrationError } from "@effect/sql-sqlite-bun/SqliteMigrator";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService.ts";
+import { APP_AUTH_SESSION_QUERY_PARAM } from "./appAuth";
 
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
 const asProviderItemId = (value: string): ProviderItemId => ProviderItemId.makeUnsafe(value);
@@ -307,12 +308,60 @@ function connectWsOnce(port: number, token?: string): Promise<WebSocket> {
   });
 }
 
+function connectWsWithSessionOnce(port: number, sessionToken: string): Promise<WebSocket> {
+  return new Promise((resolve, reject) => {
+    const query = `?${APP_AUTH_SESSION_QUERY_PARAM}=${encodeURIComponent(sessionToken)}`;
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/${query}`);
+    const channels: SocketChannels = {
+      push: { queue: [], waiters: [] },
+      response: { queue: [], waiters: [] },
+    };
+    channelsBySocket.set(ws, channels);
+
+    ws.on("message", (raw) => {
+      const parsed = JSON.parse(String(raw));
+      if (isWsPushEnvelope(parsed)) {
+        enqueue(channels.push, parsed);
+      } else {
+        const response = asWebSocketResponse(parsed);
+        if (response) {
+          enqueue(channels.response, response);
+        }
+      }
+    });
+
+    ws.once("open", () => resolve(ws));
+    ws.once("error", () => reject(new Error("WebSocket connection failed")));
+  });
+}
+
 async function connectWs(port: number, token?: string, attempts = 5): Promise<WebSocket> {
   let lastError: unknown = new Error("WebSocket connection failed");
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
       return await connectWsOnce(port, token);
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+async function connectWsWithSession(
+  port: number,
+  sessionToken: string,
+  attempts = 5,
+): Promise<WebSocket> {
+  let lastError: unknown = new Error("WebSocket connection failed");
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await connectWsWithSessionOnce(port, sessionToken);
     } catch (error) {
       lastError = error;
       if (attempt < attempts - 1) {
@@ -1872,7 +1921,7 @@ describe("WebSocket Server", () => {
 
     const ws = await connectWsWithSession(port, loginResult.sessionToken);
     connections.push(ws);
-    const welcome = (await waitForMessage(ws)) as WsPush;
+    const welcome = (await waitForPush(ws, WS_CHANNELS.serverWelcome)) as WsPush;
     expect(welcome.channel).toBe(WS_CHANNELS.serverWelcome);
   });
 

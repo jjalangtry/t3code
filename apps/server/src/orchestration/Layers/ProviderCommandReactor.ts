@@ -45,6 +45,16 @@ function toNonEmptyProviderInput(value: string | undefined): string | undefined 
   return normalized && normalized.length > 0 ? normalized : undefined;
 }
 
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+  if (typeof error === "string" && error.trim().length > 0) {
+    return error;
+  }
+  return "Unknown error.";
+}
+
 function mapProviderSessionStatusToOrchestrationStatus(
   status: "connecting" | "ready" | "running" | "error" | "closed",
 ): OrchestrationSession["status"] {

@@ -798,11 +798,17 @@ export const ProviderHealthLive = Layer.effect(
   ProviderHealth,
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
     return {
       getStatuses: Effect.all(
         [checkCodexProviderStatus, checkClaudeCodeProviderStatus, checkCursorProviderStatus],
         { concurrency: "unbounded" },
-      ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner)),
+      ).pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
+      ),
     } satisfies ProviderHealthShape;
   }),
 );

@@ -18,6 +18,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Switch } from "../components/ui/switch";
+import { SidebarTrigger } from "../components/ui/sidebar";
 import { APP_VERSION } from "../branding";
 import { SidebarInset } from "~/components/ui/sidebar";
 

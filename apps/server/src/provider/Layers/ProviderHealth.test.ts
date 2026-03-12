@@ -5,9 +5,13 @@ import * as PlatformError from "effect/PlatformError";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import {
+  checkClaudeCodeProviderStatus,
   checkCodexProviderStatus,
+  checkCursorProviderStatus,
   hasCustomModelProvider,
   parseAuthStatusFromOutput,
+  parseClaudeAuthStatusFromOutput,
+  parseCursorAuthStatusFromOutput,
   readCodexConfigModelProvider,
 } from "./ProviderHealth";
 

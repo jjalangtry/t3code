@@ -81,6 +81,7 @@ import { expandHomePath } from "./os-jank.ts";
 import { makeServerPushBus } from "./wsServer/pushBus.ts";
 import { makeServerReadiness } from "./wsServer/readiness.ts";
 import { decodeJsonResult, formatSchemaError } from "@t3tools/shared/schemaJson";
+import { AppAuthManager } from "./appAuth";
 
 /**
  * ServerShape - Service API for server lifecycle control.
