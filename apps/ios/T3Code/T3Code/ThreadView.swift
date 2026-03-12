@@ -249,117 +249,31 @@ struct ThreadView: View {
                 }
             }
 
-            GlassPanel(cornerRadius: 30) {
-                HStack(alignment: .bottom, spacing: 10) {
-                    plusButton
-
-                    GlassCapsuleSurface(horizontalPadding: 14, verticalPadding: 10) {
-                        TextField(
-                            thread?.interactionMode == .plan ? "Ask for a plan..." : "iMessage",
-                            text: $composerText,
-                            axis: .vertical
-                        )
-                        .textFieldStyle(.plain)
-                        .lineLimit(1...6)
-                    }
-
-                    if isRunning {
-                        GlassCircleButton(size: 38, tint: .red, action: interruptTurn) {
-                            Image(systemName: "stop.fill")
-                                .font(.system(size: 14, weight: .bold))
-                        }
-                    } else {
-                        GlassCircleButton(size: 38, tint: canSend ? .accentColor : .gray, isEnabled: canSend, action: sendMessage) {
-                            Image(systemName: "arrow.up")
-                                .font(.system(size: 15, weight: .bold))
-                        }
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.top, 10)
-                .padding(.bottom, 12)
-            }
-            .padding(.horizontal, 10)
-            .padding(.top, 6)
-            .padding(.bottom, 10)
-        }
-    }
-
-    private var plusButton: some View {
-        GlassCircleButton(size: 38, action: { showComposerMenu.toggle() }) {
-            Image(systemName: "plus")
-                .font(.system(size: 16, weight: .semibold))
-        }
-        .popover(isPresented: $showComposerMenu, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
-            GlassPanel(cornerRadius: 26) {
-                VStack(alignment: .leading, spacing: 16) {
-                    PhotosPicker(
-                        selection: $selectedPhotoItems,
-                        maxSelectionCount: 8,
-                        matching: .images
-                    ) {
-                        ComposerActionRow(
-                            systemImage: "photo.on.rectangle",
-                            title: "Photos",
-                            subtitle: "Choose from your library"
-                        )
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
+            HStack(alignment: .bottom, spacing: 10) {
+                ComposerPlusButton(
+                    isExpanded: $showComposerMenu,
+                    thread: thread,
+                    selectedPhotoItems: $selectedPhotoItems,
+                    onFilesPressed: {
                         showComposerMenu = false
                         showFileImporter = true
-                    } label: {
-                        ComposerActionRow(
-                            systemImage: "paperclip",
-                            title: "Files",
-                            subtitle: "Browse image files"
-                        )
-                    }
-                    .buttonStyle(.plain)
+                    },
+                    onInteractionModeChange: applyInteractionMode,
+                    onRuntimeModeChange: applyRuntimeMode
+                )
 
-                    Divider()
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Conversation")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-
-                        HStack(spacing: 8) {
-                            modeChip(
-                                title: "Chat",
-                                selected: thread?.interactionMode != .plan
-                            ) {
-                                applyInteractionMode(.default)
-                            }
-                            modeChip(
-                                title: "Plan",
-                                selected: thread?.interactionMode == .plan
-                            ) {
-                                applyInteractionMode(.plan)
-                            }
-                        }
-
-                        HStack(spacing: 8) {
-                            modeChip(
-                                title: "Supervised",
-                                selected: thread?.runtimeMode == .approvalRequired
-                            ) {
-                                applyRuntimeMode(.approvalRequired)
-                            }
-                            modeChip(
-                                title: "Full Access",
-                                selected: thread?.runtimeMode == .fullAccess
-                            ) {
-                                applyRuntimeMode(.fullAccess)
-                            }
-                        }
-                    }
-                }
-                .padding(18)
-                .frame(width: 320)
+                ComposerTextField(
+                    placeholder: thread?.interactionMode == .plan ? "Ask for a plan..." : "Message",
+                    text: $composerText,
+                    canSend: canSend,
+                    isRunning: isRunning,
+                    onSend: sendMessage,
+                    onStop: interruptTurn
+                )
             }
-            .presentationCompactAdaptation(.popover)
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+            .padding(.bottom, 12)
         }
     }
 
@@ -690,6 +604,163 @@ private struct ComposerActionRow: View {
     }
 }
 
+private struct ComposerPlusButton: View {
+    @Binding var isExpanded: Bool
+    let thread: OrchestrationThread?
+    @Binding var selectedPhotoItems: [PhotosPickerItem]
+    let onFilesPressed: () -> Void
+    let onInteractionModeChange: (InteractionMode) -> Void
+    let onRuntimeModeChange: (RuntimeMode) -> Void
+
+    private let collapsedSize: CGFloat = 42
+    private let expandedWidth: CGFloat = 260
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if isExpanded {
+                expandedContent
+            } else {
+                collapsedContent
+            }
+        }
+        .frame(width: isExpanded ? expandedWidth : collapsedSize, height: isExpanded ? nil : collapsedSize)
+        .modifier(MorphingGlassModifier(cornerRadius: isExpanded ? 24 : collapsedSize / 2))
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isExpanded)
+        .onTapGesture {
+            if !isExpanded {
+                isExpanded = true
+            }
+        }
+    }
+
+    private var collapsedContent: some View {
+        Image(systemName: "plus")
+            .font(.system(size: 20, weight: .medium))
+            .foregroundStyle(.primary)
+            .frame(width: collapsedSize, height: collapsedSize)
+    }
+
+    private var expandedContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Attachments")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    isExpanded = false
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                        .background(Color.primary.opacity(0.08), in: Circle())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+
+            HStack(spacing: 12) {
+                PhotosPicker(
+                    selection: $selectedPhotoItems,
+                    maxSelectionCount: 8,
+                    matching: .images
+                ) {
+                    menuButton(icon: "photo", title: "Photos")
+                }
+                .buttonStyle(.plain)
+
+                Button(action: onFilesPressed) {
+                    menuButton(icon: "paperclip", title: "Files")
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 16)
+
+            Divider()
+                .padding(.horizontal, 16)
+                .padding(.vertical, 4)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Mode")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 16)
+
+                glassToggle(
+                    options: ["Chat", "Plan"],
+                    selected: thread?.interactionMode == .plan ? 1 : 0
+                ) { index in
+                    onInteractionModeChange(index == 0 ? .default : .plan)
+                }
+                .padding(.horizontal, 16)
+
+                glassToggle(
+                    options: ["Supervised", "Full Auto"],
+                    selected: thread?.runtimeMode == .fullAccess ? 1 : 0
+                ) { index in
+                    onRuntimeModeChange(index == 0 ? .approvalRequired : .fullAccess)
+                }
+                .padding(.horizontal, 16)
+            }
+            .padding(.bottom, 16)
+        }
+    }
+
+    @ViewBuilder
+    private func menuButton(icon: String, title: String) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 22))
+                .foregroundStyle(.primary)
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func glassToggle(options: [String], selected: Int, onSelect: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: 0) {
+            ForEach(Array(options.enumerated()), id: \.offset) { index, option in
+                Button {
+                    onSelect(index)
+                } label: {
+                    Text(option)
+                        .font(.subheadline.weight(.medium))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .foregroundStyle(selected == index ? Color.primary : Color.secondary)
+                        .background(selected == index ? Color.primary.opacity(0.12) : Color.clear)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .background(Color.primary.opacity(0.05), in: Capsule())
+        .clipShape(Capsule())
+    }
+}
+
+private struct MorphingGlassModifier: ViewModifier {
+    let cornerRadius: CGFloat
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content
+                .background(Color.clear)
+                .glassEffect(in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        } else {
+            content
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        }
+    }
+}
+
 private struct ThreadActionPopoverView: View {
     let thread: OrchestrationThread?
     let onOpenTerminal: () -> Void
@@ -699,47 +770,46 @@ private struct ThreadActionPopoverView: View {
     let onStopSession: () -> Void
 
     var body: some View {
-        GlassPanel(cornerRadius: 26) {
-            VStack(alignment: .leading, spacing: 16) {
-                actionSection("Workspace") {
-                    actionButton("Terminal", systemImage: "terminal", detail: "Worktree shell", action: onOpenTerminal)
-                    actionButton("Git", systemImage: "point.topleft.down.curvedto.point.bottomright.up", detail: "Status and branch actions", action: onOpenGit)
+        VStack(alignment: .leading, spacing: 16) {
+            actionSection("Workspace") {
+                actionButton("Terminal", systemImage: "terminal", detail: "Worktree shell", action: onOpenTerminal)
+                actionButton("Git", systemImage: "point.topleft.down.curvedto.point.bottomright.up", detail: "Status and branch actions", action: onOpenGit)
+            }
+
+            Divider()
+
+            actionSection("Conversation") {
+                actionButton("Chat Mode", systemImage: "message", detail: thread?.interactionMode == .plan ? nil : "Current") {
+                    onInteractionModeChange(.default)
                 }
-
-                Divider()
-
-                actionSection("Conversation") {
-                    actionButton("Chat Mode", systemImage: "message", detail: thread?.interactionMode == .plan ? nil : "Current") {
-                        onInteractionModeChange(.default)
-                    }
-                    actionButton("Plan Mode", systemImage: "list.bullet.clipboard", detail: thread?.interactionMode == .plan ? "Current" : nil) {
-                        onInteractionModeChange(.plan)
-                    }
-                }
-
-                Divider()
-
-                actionSection("Execution") {
-                    actionButton("Supervised", systemImage: "lock", detail: thread?.runtimeMode == .approvalRequired ? "Current" : nil) {
-                        onRuntimeModeChange(.approvalRequired)
-                    }
-                    actionButton("Full Access", systemImage: "lock.open", detail: thread?.runtimeMode == .fullAccess ? "Current" : nil) {
-                        onRuntimeModeChange(.fullAccess)
-                    }
-                }
-
-                if thread?.session != nil {
-                    Divider()
-                    Button(role: .destructive, action: onStopSession) {
-                        Label("Stop Session", systemImage: "stop.circle")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .buttonStyle(.plain)
+                actionButton("Plan Mode", systemImage: "list.bullet.clipboard", detail: thread?.interactionMode == .plan ? "Current" : nil) {
+                    onInteractionModeChange(.plan)
                 }
             }
-            .padding(18)
-            .frame(width: 290)
+
+            Divider()
+
+            actionSection("Execution") {
+                actionButton("Supervised", systemImage: "lock", detail: thread?.runtimeMode == .approvalRequired ? "Current" : nil) {
+                    onRuntimeModeChange(.approvalRequired)
+                }
+                actionButton("Full Access", systemImage: "lock.open", detail: thread?.runtimeMode == .fullAccess ? "Current" : nil) {
+                    onRuntimeModeChange(.fullAccess)
+                }
+            }
+
+            if thread?.session != nil {
+                Divider()
+                Button(role: .destructive, action: onStopSession) {
+                    Label("Stop Session", systemImage: "stop.circle")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+            }
         }
+        .padding(18)
+        .frame(width: 290)
+        .modifier(MorphingGlassModifier(cornerRadius: 20))
     }
 
     @ViewBuilder
@@ -1263,4 +1333,93 @@ private struct MessageBubbleSurface: ViewModifier {
         }
         }
     }
+}
+
+private struct ComposerTextField: View {
+    let placeholder: String
+    @Binding var text: String
+    let canSend: Bool
+    let isRunning: Bool
+    let onSend: () -> Void
+    let onStop: () -> Void
+
+    private var showSendButton: Bool {
+        canSend || isRunning
+    }
+
+    private var hasText: Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            TextField(placeholder, text: $text, axis: .vertical)
+                .font(.body)
+                .textFieldStyle(.plain)
+                .lineLimit(1...6)
+
+            if isRunning {
+                Button(action: onStop) {
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 30, height: 30)
+                        .background(Color.red)
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .transition(.scale.combined(with: .opacity))
+            } else if canSend {
+                Button(action: onSend) {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 30, height: 30)
+                        .background(Color.accentColor)
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .transition(.scale.combined(with: .opacity))
+            } else {
+                Button(action: {}) {
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.plain)
+                .transition(.scale.combined(with: .opacity))
+            }
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, 6)
+        .frame(minHeight: 42)
+        .modifier(ComposerCapsuleModifier())
+        .animation(.snappy(duration: 0.2), value: showSendButton)
+        .animation(.snappy(duration: 0.2), value: hasText)
+    }
+}
+
+private struct ComposerCapsuleModifier: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content
+                .background(Color.clear)
+                .glassEffect(in: Capsule())
+        } else {
+            content
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay {
+                    Capsule()
+                        .strokeBorder(.white.opacity(0.22), lineWidth: 0.7)
+                }
+                .shadow(color: .black.opacity(0.06), radius: 18, y: 8)
+        }
+    }
+}
+
+#Preview {
+    ThreadView(threadId: "preview-thread")
+        .environment(SessionStore())
 }

@@ -114,3 +114,8 @@ struct ConnectView: View {
         }
     }
 }
+
+#Preview {
+    ConnectView()
+        .environment(SessionStore())
+}

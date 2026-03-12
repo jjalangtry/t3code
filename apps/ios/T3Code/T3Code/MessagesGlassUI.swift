@@ -152,3 +152,22 @@ private struct GlassRoundedRectModifier: ViewModifier {
         }
     }
 }
+
+#Preview {
+    VStack(spacing: 20) {
+        GlassCapsuleSurface {
+            Text("Capsule Surface")
+        }
+        
+        GlassCircleButton(size: 44, action: {}) {
+            Image(systemName: "plus")
+        }
+        
+        GlassPanel {
+            Text("Glass Panel Content")
+                .padding()
+        }
+    }
+    .padding()
+    .background(Color.cyan.opacity(0.2))
+}

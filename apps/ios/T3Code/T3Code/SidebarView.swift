@@ -387,3 +387,12 @@ struct StatusBadge: View {
         }
     }
 }
+
+#Preview {
+    NavigationSplitView {
+        SidebarView()
+    } detail: {
+        Text("Detail")
+    }
+    .environment(SessionStore())
+}
