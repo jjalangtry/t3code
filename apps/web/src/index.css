@@ -473,3 +473,78 @@ label:has(> select#reasoning-effort) select {
   overflow: clip;
   background: color-mix(in srgb, var(--card) 92%, var(--background));
 }
+
+/* iOS 26-style glass effect utilities */
+.glass-depth-1 {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.12),
+    rgba(255, 255, 255, 0.04)
+  );
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.08),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.14);
+}
+
+.dark .glass-depth-1 {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.07),
+    rgba(255, 255, 255, 0.02)
+  );
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.25),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* Streaming text cursor animation */
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.streaming-cursor::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: currentColor;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  animation: blink-cursor 0.8s step-end infinite;
+}
+
+/* Haptic pulse feedback animations */
+@keyframes haptic-start {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.01); }
+  100% { transform: scale(1); }
+}
+
+@keyframes haptic-stop {
+  0% { transform: scale(1); }
+  50% { transform: scale(0.995); }
+  100% { transform: scale(1); }
+}
+
+.haptic-start {
+  animation: haptic-start 0.2s ease-out;
+}
+
+.haptic-stop {
+  animation: haptic-stop 0.15s ease-out;
+}
+
+/* Ensure menu popups show iOS-style thin scrollbar when content overflows */
+[data-slot="menu-popup"] > div {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+}
+
+.dark [data-slot="menu-popup"] > div {
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}

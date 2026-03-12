@@ -299,6 +299,23 @@ function workToneClass(tone: "thinking" | "tool" | "info" | "error"): string {
   return "text-muted-foreground/40";
 }
 
+type HapticPattern = "start" | "stop" | "tool";
+
+function triggerHaptic(pattern: HapticPattern): void {
+  if (typeof navigator === "undefined" || !navigator.vibrate) return;
+  switch (pattern) {
+    case "start":
+      navigator.vibrate([8, 30, 8]);
+      break;
+    case "stop":
+      navigator.vibrate(12);
+      break;
+    case "tool":
+      navigator.vibrate([4, 20, 4, 20, 4]);
+      break;
+  }
+}
+
 interface ExpandedImageItem {
   src: string;
   name: string;
@@ -2312,6 +2329,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
     };
   }, [isWorking]);
 
+  const prevPhaseRef = useRef(phase);
+  useEffect(() => {
+    const prev = prevPhaseRef.current;
+    prevPhaseRef.current = phase;
+    if (prev === phase) return;
+    if (phase === "running" && prev !== "running") {
+      triggerHaptic("start");
+    } else if (phase !== "running" && prev === "running") {
+      triggerHaptic("stop");
+    }
+  }, [phase]);
+
   const beginSendPhase = useCallback((nextPhase: Exclude<SendPhase, "idle">) => {
     setSendStartedAt((current) => current ?? new Date().toISOString());
     setSendPhase(nextPhase);
@@ -3698,8 +3727,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
               data-chat-composer-form="true"
             >
               <div
-                className={`group rounded-[20px] border bg-card transition-colors duration-200 focus-within:border-ring/45 ${
-                  isDragOverComposer ? "border-primary/70 bg-accent/30" : "border-border"
+                className={`group rounded-[20px] transition-colors duration-200 focus-within:border-ring/45 glass-depth-1 ${
+                  isDragOverComposer ? "border-primary/70 bg-accent/30" : ""
                 }`}
                 onDragEnter={onComposerDragEnter}
                 onDragOver={onComposerDragOver}
@@ -4058,7 +4087,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                       ) : phase === "running" ? (
                         <button
                           type="button"
-                          className="flex size-8 items-center justify-center rounded-full bg-rose-500/90 text-white transition-all duration-150 hover:bg-rose-500 hover:scale-105 sm:h-8 sm:w-8"
+                          className="flex h-[34px] w-[34px] items-center justify-center rounded-[50%] bg-rose-500 text-white shadow-sm transition-all duration-150 hover:bg-rose-600 hover:shadow-md active:scale-95 sm:h-[30px] sm:w-[30px]"
                           onClick={() => void onInterrupt()}
                           aria-label="Stop generation"
                         >
@@ -4121,7 +4150,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                         ) : (
                           <button
                             type="submit"
-                            className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/90 text-primary-foreground transition-all duration-150 hover:bg-primary hover:scale-105 disabled:opacity-30 disabled:hover:scale-100 sm:h-8 sm:w-8"
+                            className="flex h-[34px] w-[34px] items-center justify-center rounded-[50%] bg-[#007AFF] text-white shadow-sm transition-all duration-150 hover:bg-[#0066DD] hover:shadow-md active:scale-95 disabled:bg-[#007AFF]/30 disabled:shadow-none disabled:active:scale-100 sm:h-[30px] sm:w-[30px]"
                             disabled={
                               isSendBusy ||
                               isConnecting ||
@@ -4158,16 +4187,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
                               </svg>
                             ) : (
                               <svg
-                                width="14"
-                                height="14"
-                                viewBox="0 0 14 14"
+                                width="16"
+                                height="16"
+                                viewBox="0 0 16 16"
                                 fill="none"
                                 aria-hidden="true"
                               >
                                 <path
-                                  d="M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5"
+                                  d="M8 12.5V3.5M8 3.5L4 7.5M8 3.5L12 7.5"
                                   stroke="currentColor"
-                                  strokeWidth="1.8"
+                                  strokeWidth="2"
                                   strokeLinecap="round"
                                   strokeLinejoin="round"
                                 />
@@ -4237,6 +4266,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
               closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
               onActiveTerminalChange={activateTerminal}
               onCloseTerminal={closeTerminal}
+              onHideDrawer={toggleTerminalVisibility}
               onHeightChange={setTerminalHeight}
               onWidthChange={setTerminalWidth}
               onPositionToggle={toggleTerminalPosition}
@@ -4268,6 +4298,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
             onActiveTerminalChange={activateTerminal}
             onCloseTerminal={closeTerminal}
+            onHideDrawer={toggleTerminalVisibility}
             onHeightChange={setTerminalHeight}
             onWidthChange={setTerminalWidth}
             onPositionToggle={toggleTerminalPosition}
@@ -5254,6 +5285,15 @@ const MessagesTimeline = memo(function MessagesTimeline({
 }: MessagesTimelineProps) {
   const timelineRootRef = useRef<HTMLDivElement | null>(null);
   const [timelineWidthPx, setTimelineWidthPx] = useState<number | null>(null);
+
+  const toolWorkCountRef = useRef(0);
+  useEffect(() => {
+    const currentToolWorkCount = timelineEntries.filter((e) => e.kind === "work").length;
+    if (currentToolWorkCount > toolWorkCountRef.current && toolWorkCountRef.current > 0) {
+      triggerHaptic("tool");
+    }
+    toolWorkCountRef.current = currentToolWorkCount;
+  }, [timelineEntries]);
 
   useLayoutEffect(() => {
     const timelineRoot = timelineRootRef.current;

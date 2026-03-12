@@ -491,6 +491,7 @@ interface ThreadTerminalDrawerProps {
   closeShortcutLabel?: string | undefined;
   onActiveTerminalChange: (terminalId: string) => void;
   onCloseTerminal: (terminalId: string) => void;
+  onHideDrawer: () => void;
   onHeightChange: (height: number) => void;
   onWidthChange: (width: number) => void;
   onPositionToggle: () => void;
@@ -546,6 +547,7 @@ export default function ThreadTerminalDrawer({
   closeShortcutLabel,
   onActiveTerminalChange,
   onCloseTerminal,
+  onHideDrawer,
   onHeightChange,
   onWidthChange,
   onPositionToggle,
@@ -681,9 +683,9 @@ export default function ThreadTerminalDrawer({
     : newShortcutLabel
       ? `New Terminal (${newShortcutLabel})`
       : "New Terminal";
-  const closeTerminalActionLabel = closeShortcutLabel
-    ? `Close Terminal (${closeShortcutLabel})`
-    : "Close Terminal";
+  const killTerminalActionLabel = closeShortcutLabel
+    ? `Kill Terminal (${closeShortcutLabel})`
+    : "Kill Terminal";
   const onSplitTerminalAction = useCallback(() => {
     if (hasReachedTerminalLimit) return;
     onSplitTerminal();
@@ -866,7 +868,7 @@ export default function ThreadTerminalDrawer({
       <TerminalActionButton
         className="inline-flex h-full items-center border-l border-border/70 px-1 text-foreground/90 transition-colors hover:bg-accent/70"
         onClick={() => onCloseTerminal(resolvedActiveTerminalId)}
-        label={closeTerminalActionLabel}
+        label={killTerminalActionLabel}
       >
         <Trash2 className="size-3.25" />
       </TerminalActionButton>
@@ -884,6 +886,14 @@ export default function ThreadTerminalDrawer({
         label={isRight ? "Move terminal to bottom" : "Move terminal to right sidebar"}
       >
         {isRight ? <PanelBottom className="size-3.25" /> : <PanelRight className="size-3.25" />}
+      </TerminalActionButton>
+      <div className="h-4 w-px self-center bg-border/80 mx-0.5" />
+      <TerminalActionButton
+        className="inline-flex h-full items-center border-l border-border/70 px-1 text-foreground/90 transition-colors hover:bg-accent/70"
+        onClick={onHideDrawer}
+        label="Hide terminal"
+      >
+        <XIcon className="size-3.25" />
       </TerminalActionButton>
     </div>
   );
@@ -1118,7 +1128,7 @@ export default function ThreadTerminalDrawer({
             <TerminalActionButton
               className="p-1 text-foreground/90 transition-colors hover:bg-accent"
               onClick={() => onCloseTerminal(resolvedActiveTerminalId)}
-              label={closeTerminalActionLabel}
+              label={killTerminalActionLabel}
             >
               <Trash2 className="size-3.25" />
             </TerminalActionButton>
@@ -1137,6 +1147,14 @@ export default function ThreadTerminalDrawer({
               label="Move terminal to right sidebar"
             >
               <PanelRight className="size-3.25" />
+            </TerminalActionButton>
+            <div className="h-4 w-px bg-border/80" />
+            <TerminalActionButton
+              className="p-1 text-foreground/90 transition-colors hover:bg-accent"
+              onClick={onHideDrawer}
+              label="Hide terminal"
+            >
+              <XIcon className="size-3.25" />
             </TerminalActionButton>
           </div>
         </div>

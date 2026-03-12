@@ -79,6 +79,7 @@ import {
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "./ui/alert";
 import { Button } from "./ui/button";
 import { Collapsible, CollapsibleContent } from "./ui/collapsible";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import {
   SidebarContent,
@@ -1286,15 +1287,13 @@ export default function Sidebar() {
             <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
               Projects
             </span>
-            <Tooltip>
-              <TooltipTrigger
+            <Menu>
+              <MenuTrigger
                 render={
                   <button
                     type="button"
                     aria-label="Add project"
-                    aria-pressed={shouldShowProjectPathEntry}
                     className="inline-flex size-5 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
-                    onClick={handleStartAddProject}
                   />
                 }
               >
@@ -1303,9 +1302,14 @@ export default function Sidebar() {
                     shouldShowProjectPathEntry ? "rotate-45" : "rotate-0"
                   }`}
                 />
-              </TooltipTrigger>
-              <TooltipPopup side="right">Add project</TooltipPopup>
-            </Tooltip>
+              </MenuTrigger>
+              <MenuPopup align="end" side="bottom">
+                <MenuItem onClick={handleStartAddProject}>
+                  <PlusIcon className="size-4 shrink-0" />
+                  Add project
+                </MenuItem>
+              </MenuPopup>
+            </Menu>
           </div>
 
           {shouldShowProjectPathEntry && (
