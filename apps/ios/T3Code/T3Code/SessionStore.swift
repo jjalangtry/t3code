@@ -296,6 +296,11 @@ final class SessionStore {
         try await api.stopSession(threadId: threadId)
     }
 
+    func revertThread(threadId: ThreadId, turnCount: Int) async throws {
+        guard let api else { throw TransportError.notConnected }
+        try await api.revertThread(threadId: threadId, turnCount: turnCount)
+    }
+
     func setThreadRuntimeMode(threadId: ThreadId, runtimeMode: RuntimeMode) async throws {
         guard let api else { throw TransportError.notConnected }
         try await api.setThreadRuntimeMode(threadId: threadId, runtimeMode: runtimeMode)

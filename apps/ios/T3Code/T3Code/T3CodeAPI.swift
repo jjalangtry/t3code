@@ -178,6 +178,17 @@ nonisolated final class T3CodeAPI: Sendable {
         try await dispatchCommand(command)
     }
 
+    func revertThread(threadId: ThreadId, turnCount: Int) async throws {
+        let command: [String: Any] = [
+            "type": "thread.checkpoint.revert",
+            "commandId": UUID().uuidString,
+            "threadId": threadId,
+            "turnCount": turnCount,
+            "createdAt": isoNow(),
+        ]
+        try await dispatchCommand(command)
+    }
+
     // MARK: - Server
 
     func getServerConfig() async throws -> Any? {

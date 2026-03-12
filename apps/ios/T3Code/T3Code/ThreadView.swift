@@ -1,5 +1,6 @@
 import PhotosUI
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 private let imageOnlyBootstrapPrompt =
@@ -14,10 +15,12 @@ struct ThreadView: View {
     @State private var isSending = false
     @State private var errorMessage: String?
     @State private var showComposerMenu = false
+    @State private var showThreadActionsPopover = false
     @State private var presentedSheet: ThreadSheet?
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var selectedAttachments: [PendingComposerAttachment] = []
     @State private var showFileImporter = false
+    @State private var pendingRevertTarget: PendingRevertTarget?
 
     private var thread: OrchestrationThread? {
         store.threads.first { $0.id == threadId }
@@ -38,82 +41,137 @@ struct ThreadView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
-                        ForEach(timelineItems) { item in
-                            switch item {
-                            case .message(let message):
-                                MessageBubble(
-                                    message: message,
-                                    overrideText: store.streamingMessageId == message.id ? store.streamingText : nil
-                                )
-                                .id(item.id)
-                            case .activity(let activity):
-                                ActivityTimelineRow(activity: activity)
+        ZStack {
+            chatBackground
+
+            VStack(spacing: 0) {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 12) {
+                            ForEach(timelineItems) { item in
+                                switch item {
+                                case .message(let message):
+                                    MessageBubble(
+                                        message: message,
+                                        overrideText: store.streamingMessageId == message.id ? store.streamingText : nil
+                                    )
+                                    .contextMenu {
+                                        Button {
+                                            copyMessage(message)
+                                        } label: {
+                                            Label("Copy", systemImage: "doc.on.doc")
+                                        }
+
+                                        Menu("Thread") {
+                                            Button {
+                                                copyThread()
+                                            } label: {
+                                                Label("Copy Thread", systemImage: "text.justify")
+                                            }
+
+                                            if let turnCount = revertTurnCount(for: message) {
+                                                Button(role: .destructive) {
+                                                    requestRevert(for: message, turnCount: turnCount)
+                                                } label: {
+                                                    Label("Revert to Here", systemImage: "arrow.uturn.backward")
+                                                }
+                                            }
+                                        }
+                                    } preview: {
+                                        MessageBubble(
+                                            message: message,
+                                            overrideText: store.streamingMessageId == message.id ? store.streamingText : nil
+                                        )
+                                        .padding()
+                                        .background(chatBackground)
+                                    }
                                     .id(item.id)
+                                case .activity(let activity):
+                                    ActivityTimelineRow(activity: activity)
+                                        .id(item.id)
+                                }
                             }
+                            Color.clear
+                                .frame(height: 1)
+                                .id(bottomAnchorId)
                         }
-                        Color.clear
-                            .frame(height: 1)
-                            .id(bottomAnchorId)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 12)
+                        .padding(.bottom, 20)
                     }
-                    .padding()
+                    .scrollIndicators(.hidden)
+                    .defaultScrollAnchor(.bottom)
+                    .onAppear {
+                        scrollToBottom(proxy, animated: false)
+                    }
+                    .onChange(of: timelineItems.last?.id) { _, _ in
+                        scrollToBottom(proxy, animated: true)
+                    }
+                    .onChange(of: store.streamingText) { _, _ in
+                        scrollToBottom(proxy, animated: false)
+                    }
+                    .onChange(of: threadId) { _, _ in
+                        scrollToBottom(proxy, animated: false)
+                    }
                 }
-                .defaultScrollAnchor(.bottom)
-                .onAppear {
-                    scrollToBottom(proxy, animated: false)
+
+                if let errorMessage {
+                    InlineErrorBanner(
+                        systemImage: "exclamationmark.triangle",
+                        message: errorMessage
+                    ) {
+                        self.errorMessage = nil
+                    }
                 }
-                .onChange(of: timelineItems.last?.id) { _, _ in
-                    scrollToBottom(proxy, animated: true)
+
+                if let sessionError = thread?.session?.lastError {
+                    InlineErrorBanner(
+                        systemImage: "exclamationmark.octagon",
+                        message: sessionError,
+                        dismissAction: nil
+                    )
                 }
-                .onChange(of: store.streamingText) { _, _ in
-                    scrollToBottom(proxy, animated: false)
-                }
-                .onChange(of: threadId) { _, _ in
-                    scrollToBottom(proxy, animated: false)
-                }
+
+                composerBar
             }
-
-            Divider()
-
-            if let errorMessage {
-                InlineErrorBanner(
-                    systemImage: "exclamationmark.triangle",
-                    message: errorMessage
-                ) {
-                    self.errorMessage = nil
-                }
-            }
-
-            if let sessionError = thread?.session?.lastError {
-                InlineErrorBanner(
-                    systemImage: "exclamationmark.octagon",
-                    message: sessionError,
-                    dismissAction: nil
-                )
-            }
-
-            composerBar
         }
         .navigationTitle(thread?.title ?? "Thread")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    presentedSheet = .threadActions
+                    showThreadActionsPopover.toggle()
                 } label: {
                     ZStack(alignment: .topTrailing) {
-                        Image(systemName: "ellipsis.circle")
-                            .font(.title3)
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 20, weight: .semibold))
+                            .frame(width: 40, height: 40)
+                            .modifier(GlassCircleModifier(tint: nil))
                         Circle()
                             .fill(statusColor)
-                            .frame(width: 8, height: 8)
-                            .offset(x: 4, y: -2)
+                            .frame(width: 7, height: 7)
+                            .offset(x: 8, y: -4)
                     }
                 }
+                .buttonStyle(.plain)
                 .accessibilityLabel("Thread actions")
+                .popover(isPresented: $showThreadActionsPopover, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
+                    ThreadActionPopoverView(
+                        thread: thread,
+                        onOpenTerminal: {
+                            showThreadActionsPopover = false
+                            presentedSheet = .terminal
+                        },
+                        onOpenGit: {
+                            showThreadActionsPopover = false
+                            presentedSheet = .git
+                        },
+                        onRuntimeModeChange: applyRuntimeMode,
+                        onInteractionModeChange: applyInteractionMode,
+                        onStopSession: stopSession
+                    )
+                    .presentationCompactAdaptation(.popover)
+                }
             }
         }
         .onChange(of: selectedPhotoItems) { _, newItems in
@@ -135,22 +193,31 @@ struct ThreadView: View {
         .sheet(item: $presentedSheet) { sheet in
             NavigationStack {
                 switch sheet {
-                case .threadActions:
-                    ThreadActionSheetView(
-                        thread: thread,
-                        presentedSheet: $presentedSheet,
-                        onRuntimeModeChange: applyRuntimeMode,
-                        onInteractionModeChange: applyInteractionMode,
-                        onStopSession: stopSession
-                    )
                 case .terminal:
                     TerminalSheetView(threadId: threadId)
                 case .git:
                     GitSheetView(threadId: threadId)
                 }
             }
-            .presentationDetents(sheet == .threadActions ? [.medium, .large] : [.large])
+            .presentationDetents([.large])
             .presentationDragIndicator(.visible)
+        }
+        .alert(
+            "Revert Thread?",
+            isPresented: Binding(
+                get: { pendingRevertTarget != nil },
+                set: { if !$0 { pendingRevertTarget = nil } }
+            ),
+            presenting: pendingRevertTarget
+        ) { target in
+            Button("Cancel", role: .cancel) {
+                pendingRevertTarget = nil
+            }
+            Button("Revert", role: .destructive) {
+                confirmRevert(target)
+            }
+        } message: { target in
+            Text("Revert this thread to the checkpoint near \"\(target.label)\"? Newer messages and changes in this thread will be discarded.")
         }
     }
 
@@ -160,147 +227,139 @@ struct ThreadView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(selectedAttachments) { attachment in
-                            HStack(spacing: 6) {
-                                Image(systemName: "photo")
-                                    .font(.caption)
-                                Text(attachment.name)
-                                    .font(.caption)
-                                    .lineLimit(1)
-                                Button {
-                                    selectedAttachments.removeAll { $0.id == attachment.id }
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
+                            GlassCapsuleSurface(horizontalPadding: 10, verticalPadding: 8) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "photo")
                                         .font(.caption)
+                                    Text(attachment.name)
+                                        .font(.caption)
+                                        .lineLimit(1)
+                                    Button {
+                                        selectedAttachments.removeAll { $0.id == attachment.id }
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(.caption)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
                             }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 8)
-                            .background(.thinMaterial, in: Capsule())
                         }
                     }
                     .padding(.horizontal)
                 }
             }
 
-            HStack(alignment: .bottom, spacing: 10) {
-                plusButton
+            GlassPanel(cornerRadius: 30) {
+                HStack(alignment: .bottom, spacing: 10) {
+                    plusButton
 
-                TextField(
-                    thread?.interactionMode == .plan ? "Ask for a plan…" : "Message",
-                    text: $composerText,
-                    axis: .vertical
-                )
-                .textFieldStyle(.plain)
-                .lineLimit(1...6)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 11)
-                .background(.thinMaterial, in: Capsule())
+                    GlassCapsuleSurface(horizontalPadding: 14, verticalPadding: 10) {
+                        TextField(
+                            thread?.interactionMode == .plan ? "Ask for a plan..." : "iMessage",
+                            text: $composerText,
+                            axis: .vertical
+                        )
+                        .textFieldStyle(.plain)
+                        .lineLimit(1...6)
+                    }
 
-                if isRunning {
-                    Button(action: interruptTurn) {
-                        Image(systemName: "stop.fill")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 36, height: 36)
-                            .background(.red, in: Circle())
+                    if isRunning {
+                        GlassCircleButton(size: 38, tint: .red, action: interruptTurn) {
+                            Image(systemName: "stop.fill")
+                                .font(.system(size: 14, weight: .bold))
+                        }
+                    } else {
+                        GlassCircleButton(size: 38, tint: canSend ? .accentColor : .gray, isEnabled: canSend, action: sendMessage) {
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 15, weight: .bold))
+                        }
                     }
-                } else {
-                    Button(action: sendMessage) {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 36, height: 36)
-                            .background(canSend ? Color.accentColor : Color.gray.opacity(0.4), in: Circle())
-                    }
-                    .disabled(!canSend)
                 }
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+                .padding(.bottom, 12)
             }
-            .padding(.horizontal)
-            .padding(.top, 10)
-            .padding(.bottom, 12)
-            .background(.bar)
+            .padding(.horizontal, 10)
+            .padding(.top, 6)
+            .padding(.bottom, 10)
         }
     }
 
     private var plusButton: some View {
-        Button {
-            showComposerMenu.toggle()
-        } label: {
+        GlassCircleButton(size: 38, action: { showComposerMenu.toggle() }) {
             Image(systemName: "plus")
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(.primary)
-                .frame(width: 36, height: 36)
-                .background(.thinMaterial, in: Circle())
         }
-        .popover(isPresented: $showComposerMenu, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 12) {
-                PhotosPicker(
-                    selection: $selectedPhotoItems,
-                    maxSelectionCount: 8,
-                    matching: .images
-                ) {
-                    ComposerActionRow(
-                        systemImage: "photo.on.rectangle",
-                        title: "Upload Image",
-                        subtitle: "Pick from your photo library"
-                    )
-                }
-                .buttonStyle(.plain)
+        .popover(isPresented: $showComposerMenu, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
+            GlassPanel(cornerRadius: 26) {
+                VStack(alignment: .leading, spacing: 16) {
+                    PhotosPicker(
+                        selection: $selectedPhotoItems,
+                        maxSelectionCount: 8,
+                        matching: .images
+                    ) {
+                        ComposerActionRow(
+                            systemImage: "photo.on.rectangle",
+                            title: "Photos",
+                            subtitle: "Choose from your library"
+                        )
+                    }
+                    .buttonStyle(.plain)
 
-                Button {
-                    showComposerMenu = false
-                    showFileImporter = true
-                } label: {
-                    ComposerActionRow(
-                        systemImage: "paperclip",
-                        title: "Upload File",
-                        subtitle: "Browse files for images"
-                    )
-                }
-                .buttonStyle(.plain)
+                    Button {
+                        showComposerMenu = false
+                        showFileImporter = true
+                    } label: {
+                        ComposerActionRow(
+                            systemImage: "paperclip",
+                            title: "Files",
+                            subtitle: "Browse image files"
+                        )
+                    }
+                    .buttonStyle(.plain)
 
-                Divider()
+                    Divider()
 
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Mode")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Conversation")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
 
-                    HStack(spacing: 8) {
-                        modeChip(
-                            title: "Chat",
-                            selected: thread?.interactionMode != .plan
-                        ) {
-                            applyInteractionMode(.default)
+                        HStack(spacing: 8) {
+                            modeChip(
+                                title: "Chat",
+                                selected: thread?.interactionMode != .plan
+                            ) {
+                                applyInteractionMode(.default)
+                            }
+                            modeChip(
+                                title: "Plan",
+                                selected: thread?.interactionMode == .plan
+                            ) {
+                                applyInteractionMode(.plan)
+                            }
                         }
-                        modeChip(
-                            title: "Plan",
-                            selected: thread?.interactionMode == .plan
-                        ) {
-                            applyInteractionMode(.plan)
+
+                        HStack(spacing: 8) {
+                            modeChip(
+                                title: "Supervised",
+                                selected: thread?.runtimeMode == .approvalRequired
+                            ) {
+                                applyRuntimeMode(.approvalRequired)
+                            }
+                            modeChip(
+                                title: "Full Access",
+                                selected: thread?.runtimeMode == .fullAccess
+                            ) {
+                                applyRuntimeMode(.fullAccess)
+                            }
                         }
                     }
-
-                    HStack(spacing: 8) {
-                        modeChip(
-                            title: "Supervised",
-                            selected: thread?.runtimeMode == .approvalRequired
-                        ) {
-                            applyRuntimeMode(.approvalRequired)
-                        }
-                        modeChip(
-                            title: "Full Access",
-                            selected: thread?.runtimeMode == .fullAccess
-                        ) {
-                            applyRuntimeMode(.fullAccess)
-                        }
-                    }
                 }
+                .padding(18)
+                .frame(width: 320)
             }
-            .padding(16)
-            .frame(width: 300)
-            .background(.ultraThinMaterial)
+            .presentationCompactAdaptation(.popover)
         }
     }
 
@@ -321,13 +380,91 @@ struct ThreadView: View {
                 .font(.caption.weight(.medium))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .background(selected ? Color.accentColor.opacity(0.18) : Color.clear, in: Capsule())
-                .overlay {
-                    Capsule()
-                        .stroke(selected ? Color.accentColor : Color.secondary.opacity(0.2), lineWidth: 1)
-                }
+                .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
+        .foregroundStyle(selected ? Color.accentColor : Color.primary)
+        .background(selected ? Color.accentColor.opacity(0.12) : Color.clear, in: Capsule())
+        .overlay {
+            Capsule()
+                .stroke(selected ? Color.accentColor.opacity(0.7) : Color.white.opacity(0.18), lineWidth: 0.8)
+        }
+    }
+
+    private var chatBackground: some View {
+        LinearGradient(
+            colors: [
+                Color(.systemBackground),
+                Color(.secondarySystemBackground).opacity(0.96),
+                Color.cyan.opacity(0.08),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .overlay(alignment: .topTrailing) {
+            Circle()
+                .fill(Color.blue.opacity(0.12))
+                .frame(width: 220, height: 220)
+                .blur(radius: 30)
+                .offset(x: 80, y: -40)
+        }
+        .overlay(alignment: .bottomLeading) {
+            Circle()
+                .fill(Color.white.opacity(0.18))
+                .frame(width: 180, height: 180)
+                .blur(radius: 26)
+                .offset(x: -50, y: 60)
+        }
+        .ignoresSafeArea()
+    }
+
+    private func copyMessage(_ message: OrchestrationMessage) {
+        UIPasteboard.general.string = message.text
+    }
+
+    private func copyThread() {
+        guard let thread else { return }
+        let transcript = thread.messages
+            .map { message in
+                let speaker: String
+                switch message.role {
+                case .user:
+                    speaker = "You"
+                case .assistant:
+                    speaker = "Assistant"
+                case .system:
+                    speaker = "System"
+                }
+                return "\(speaker): \(message.text)"
+            }
+            .joined(separator: "\n\n")
+        UIPasteboard.general.string = transcript
+    }
+
+    private func revertTurnCount(for message: OrchestrationMessage) -> Int? {
+        guard message.role == .assistant else { return nil }
+        return thread?.checkpoints.first(where: {
+            $0.assistantMessageId == message.id && $0.status == "ready"
+        })?.checkpointTurnCount
+    }
+
+    private func requestRevert(for message: OrchestrationMessage, turnCount: Int) {
+        let label = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        pendingRevertTarget = PendingRevertTarget(
+            turnCount: turnCount,
+            label: label.isEmpty ? "this message" : String(label.prefix(60))
+        )
+    }
+
+    private func confirmRevert(_ target: PendingRevertTarget) {
+        pendingRevertTarget = nil
+        Task {
+            do {
+                try await store.revertThread(threadId: threadId, turnCount: target.turnCount)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
     }
 
     private func sendMessage() {
@@ -486,11 +623,17 @@ struct ThreadView: View {
 }
 
 private enum ThreadSheet: String, Identifiable {
-    case threadActions
     case terminal
     case git
 
     var id: String { rawValue }
+}
+
+private struct PendingRevertTarget: Identifiable {
+    let turnCount: Int
+    let label: String
+
+    var id: Int { turnCount }
 }
 
 private struct InlineErrorBanner: View {
@@ -547,87 +690,88 @@ private struct ComposerActionRow: View {
     }
 }
 
-private struct ThreadActionSheetView: View {
+private struct ThreadActionPopoverView: View {
     let thread: OrchestrationThread?
-    @Binding var presentedSheet: ThreadSheet?
+    let onOpenTerminal: () -> Void
+    let onOpenGit: () -> Void
     let onRuntimeModeChange: (RuntimeMode) -> Void
     let onInteractionModeChange: (InteractionMode) -> Void
     let onStopSession: () -> Void
 
     var body: some View {
-        Form {
-            Section("Workspace") {
-                Button {
-                    presentedSheet = .terminal
-                } label: {
-                    actionLabel("Terminal", systemImage: "terminal", detail: "Bottom sheet terminal")
+        GlassPanel(cornerRadius: 26) {
+            VStack(alignment: .leading, spacing: 16) {
+                actionSection("Workspace") {
+                    actionButton("Terminal", systemImage: "terminal", detail: "Worktree shell", action: onOpenTerminal)
+                    actionButton("Git", systemImage: "point.topleft.down.curvedto.point.bottomright.up", detail: "Status and branch actions", action: onOpenGit)
                 }
 
-                Button {
-                    presentedSheet = .git
-                } label: {
-                    actionLabel("Git", systemImage: "point.topleft.down.curvedto.point.bottomright.up", detail: "Status, branches, pull, commit")
-                }
-            }
+                Divider()
 
-            Section("Conversation") {
-                Button {
-                    onInteractionModeChange(.default)
-                } label: {
-                    actionLabel("Chat Mode", systemImage: "text.bubble", detail: thread?.interactionMode == .plan ? nil : "Current")
-                }
-
-                Button {
-                    onInteractionModeChange(.plan)
-                } label: {
-                    actionLabel("Plan Mode", systemImage: "list.bullet.clipboard", detail: thread?.interactionMode == .plan ? "Current" : nil)
-                }
-            }
-
-            Section("Execution") {
-                Button {
-                    onRuntimeModeChange(.approvalRequired)
-                } label: {
-                    actionLabel("Supervised", systemImage: "lock", detail: thread?.runtimeMode == .approvalRequired ? "Current" : nil)
-                }
-
-                Button {
-                    onRuntimeModeChange(.fullAccess)
-                } label: {
-                    actionLabel("Full Access", systemImage: "lock.open", detail: thread?.runtimeMode == .fullAccess ? "Current" : nil)
-                }
-            }
-
-            if thread?.session != nil {
-                Section {
-                    Button(role: .destructive, action: onStopSession) {
-                        Label("Stop Session", systemImage: "stop.circle")
+                actionSection("Conversation") {
+                    actionButton("Chat Mode", systemImage: "message", detail: thread?.interactionMode == .plan ? nil : "Current") {
+                        onInteractionModeChange(.default)
+                    }
+                    actionButton("Plan Mode", systemImage: "list.bullet.clipboard", detail: thread?.interactionMode == .plan ? "Current" : nil) {
+                        onInteractionModeChange(.plan)
                     }
                 }
-            }
-        }
-        .navigationTitle("Thread Actions")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button("Close") {
-                    presentedSheet = nil
+
+                Divider()
+
+                actionSection("Execution") {
+                    actionButton("Supervised", systemImage: "lock", detail: thread?.runtimeMode == .approvalRequired ? "Current" : nil) {
+                        onRuntimeModeChange(.approvalRequired)
+                    }
+                    actionButton("Full Access", systemImage: "lock.open", detail: thread?.runtimeMode == .fullAccess ? "Current" : nil) {
+                        onRuntimeModeChange(.fullAccess)
+                    }
+                }
+
+                if thread?.session != nil {
+                    Divider()
+                    Button(role: .destructive, action: onStopSession) {
+                        Label("Stop Session", systemImage: "stop.circle")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
+            .padding(18)
+            .frame(width: 290)
         }
     }
 
     @ViewBuilder
-    private func actionLabel(_ title: String, systemImage: String, detail: String?) -> some View {
-        HStack {
-            Label(title, systemImage: systemImage)
-            Spacer()
-            if let detail {
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+    private func actionSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            content()
         }
+    }
+
+    private func actionButton(_ title: String, systemImage: String, detail: String?, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .frame(width: 18)
+                    .foregroundStyle(.primary)
+                Text(title)
+                Spacer()
+                if let detail {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 11)
+            .background(.white.opacity(0.001), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -660,21 +804,24 @@ private struct TerminalSheetView: View {
 
             Divider()
 
-            HStack(spacing: 10) {
-                TextField("Enter a command", text: $command)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 11)
-                    .background(.thinMaterial, in: Capsule())
+            GlassPanel(cornerRadius: 30) {
+                HStack(spacing: 10) {
+                    GlassCapsuleSurface(horizontalPadding: 14, verticalPadding: 10) {
+                        TextField("Enter a command", text: $command)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
 
-                Button("Send") {
-                    sendCommand()
+                    let canSend = !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    GlassCircleButton(size: 38, tint: canSend ? .accentColor : .gray, isEnabled: canSend, action: sendCommand) {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 15, weight: .bold))
+                    }
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 12)
             }
-            .padding()
+            .padding(10)
         }
         .navigationTitle("Terminal")
         .navigationBarTitleDisplayMode(.inline)
@@ -923,29 +1070,20 @@ struct MessageBubble: View {
         return message.text
     }
 
+    private var showsBubbleChrome: Bool {
+        message.role == .user
+    }
+
     var body: some View {
         HStack {
-            if message.role == .user { Spacer(minLength: 60) }
+            if message.role == .user { Spacer(minLength: 54) }
 
-            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
-                if message.role == .assistant || message.role == .system {
-                    HStack(spacing: 4) {
-                        Image(systemName: message.role == .assistant ? "sparkles" : "info.circle")
-                            .font(.caption2)
-                        Text(message.role == .assistant ? "Assistant" : "System")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-
-                        if message.streaming {
-                            ProgressView()
-                                .controlSize(.mini)
-                        }
-                    }
-                }
-
+            VStack(alignment: .leading, spacing: 6) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(displayedText)
                         .font(.body)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
 
                     if let attachments = message.attachments, !attachments.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
@@ -955,26 +1093,29 @@ struct MessageBubble: View {
                             }
                         }
                     }
+
+                    if message.streaming {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.mini)
+                            Text("Working…")
+                                .font(.caption)
+                        }
+                        .foregroundStyle(message.role == .user ? AnyShapeStyle(.white.opacity(0.92)) : AnyShapeStyle(.secondary))
+                    }
                 }
-                .padding(12)
-                .background(backgroundColor)
+                .padding(.horizontal, showsBubbleChrome ? 14 : 0)
+                .padding(.vertical, showsBubbleChrome ? 11 : 0)
+                .modifier(MessageBubbleSurface(role: message.role, isEnabled: showsBubbleChrome))
                 .foregroundStyle(foregroundColor)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
 
                 Text(formatTime(message.createdAt))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
+            .frame(maxWidth: message.role == .user ? 320 : .infinity, alignment: .leading)
 
-            if message.role != .user { Spacer(minLength: 60) }
-        }
-    }
-
-    private var backgroundColor: Color {
-        switch message.role {
-        case .user: .blue
-        case .assistant: Color(.secondarySystemBackground)
-        case .system: Color(.tertiarySystemBackground)
+            if message.role != .user { Spacer(minLength: 54) }
         }
     }
 
@@ -999,7 +1140,7 @@ struct ActivityTimelineRow: View {
 
     var body: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 8) {
+            GlassPanel(cornerRadius: 24) {
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: iconName(for: activity))
                         .font(.caption)
@@ -1035,10 +1176,8 @@ struct ActivityTimelineRow: View {
                             .foregroundStyle(.tertiary)
                     }
                 }
+                .padding(12)
             }
-            .padding(12)
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 14))
             Spacer(minLength: 60)
         }
     }
@@ -1070,5 +1209,58 @@ struct ActivityTimelineRow: View {
         let timeFormatter = DateFormatter()
         timeFormatter.timeStyle = .short
         return timeFormatter.string(from: date)
+    }
+}
+
+private struct MessageBubbleSurface: ViewModifier {
+    let role: MessageRole
+    let isEnabled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if !isEnabled {
+            content
+        } else {
+        switch role {
+        case .user:
+            if #available(iOS 26.0, *) {
+                content
+                    .background(Color.blue.opacity(0.92))
+                    .glassEffect(in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            } else {
+                content
+                    .background(
+                        LinearGradient(
+                            colors: [Color.blue, Color.blue.opacity(0.88)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        in: RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .strokeBorder(.white.opacity(0.18), lineWidth: 0.8)
+                    }
+                    .shadow(color: .blue.opacity(0.22), radius: 18, y: 8)
+            }
+        case .assistant, .system:
+            if #available(iOS 26.0, *) {
+                content
+                    .background(Color.clear)
+                    .glassEffect(in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            } else {
+                content
+                    .background(
+                        .ultraThinMaterial,
+                        in: RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .strokeBorder(.white.opacity(0.22), lineWidth: 0.8)
+                    }
+                    .shadow(color: .black.opacity(0.06), radius: 20, y: 8)
+            }
+        }
+        }
     }
 }
