@@ -23,6 +23,25 @@ struct GlassCapsuleSurface<Content: View>: View {
     }
 }
 
+struct GlassSurfaceContainer<Content: View>: View {
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer {
+                content
+            }
+        } else {
+            content
+        }
+    }
+}
+
 struct GlassCircleButton<Label: View>: View {
     let size: CGFloat
     let tint: Color?
@@ -52,7 +71,7 @@ struct GlassCircleButton<Label: View>: View {
         .buttonStyle(.plain)
         .foregroundStyle(foregroundStyle)
         .opacity(isEnabled ? 1 : 0.55)
-        .modifier(GlassCircleModifier(tint: tint))
+        .modifier(GlassCircleModifier(tint: tint, isInteractive: true))
         .disabled(!isEnabled)
     }
 
@@ -100,19 +119,20 @@ private struct GlassCapsuleModifier: ViewModifier {
 
 struct GlassCircleModifier: ViewModifier {
     let tint: Color?
+    let isInteractive: Bool
 
     @ViewBuilder
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
-            if let tint {
-                content
-                    .background(tint.opacity(0.9))
-                    .glassEffect(in: Circle())
-            } else {
-                content
-                    .background(Color.clear)
-                    .glassEffect(in: Circle())
-            }
+            let glass: Glass = {
+                if let tint {
+                    return isInteractive ? .regular.tint(tint).interactive() : .regular.tint(tint)
+                }
+                return isInteractive ? .regular.interactive() : .regular
+            }()
+            content
+                .background(Color.clear)
+                .glassEffect(glass, in: Circle())
         } else {
             content
                 .background(backgroundStyle, in: Circle())

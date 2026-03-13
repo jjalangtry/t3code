@@ -7,6 +7,12 @@ import Foundation
 nonisolated final class T3CodeAPI: Sendable {
     let transport: WebSocketTransport
 
+    private static let isoFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
     init(transport: WebSocketTransport) {
         self.transport = transport
     }
@@ -30,7 +36,7 @@ nonisolated final class T3CodeAPI: Sendable {
     // MARK: - Orchestration commands (convenience)
 
     private func isoNow() -> String {
-        ISO8601DateFormatter().string(from: Date())
+        Self.isoFormatter.string(from: Date())
     }
 
     func sendMessage(
