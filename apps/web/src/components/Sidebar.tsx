@@ -328,7 +328,9 @@ export default function Sidebar() {
   );
   const addProjectSuggestions = useMemo<AddProjectSuggestion[]>(() => {
     const entries = addProjectSearchEntriesQuery.data?.entries ?? [];
-    const existingProjectPaths = new Set(projects.map((project) => normalizeAddProjectPathInput(project.cwd)));
+    const existingProjectPaths = new Set(
+      projects.map((project) => normalizeAddProjectPathInput(project.cwd)),
+    );
     return entries
       .filter((entry) => entry.kind === "directory" && addProjectSearchInput.cwd !== null)
       .map((entry) => {
@@ -364,7 +366,8 @@ export default function Sidebar() {
     [projects],
   );
   const activeTerminalState = useMemo(
-    () => (routeThreadId ? selectThreadTerminalState(terminalStateByThreadId, routeThreadId) : null),
+    () =>
+      routeThreadId ? selectThreadTerminalState(terminalStateByThreadId, routeThreadId) : null,
     [routeThreadId, terminalStateByThreadId],
   );
   const threadGitTargets = useMemo(
@@ -1283,9 +1286,7 @@ export default function Sidebar() {
   const themeToggleTooltip =
     resolvedTheme === "dark" ? "Switch app to light mode" : "Switch app to dark mode";
   const terminalPositionTooltip =
-    terminalPosition === "right"
-      ? "Move terminal to bottom"
-      : "Move terminal to right sidebar";
+    terminalPosition === "right" ? "Move terminal to bottom" : "Move terminal to right sidebar";
 
   const expandThreadListForProject = useCallback((projectId: ProjectId) => {
     setExpandedThreadListsByProject((current) => {
@@ -1520,7 +1521,8 @@ export default function Sidebar() {
                     if (event.key === "Enter") {
                       if (
                         highlightedAddProjectSuggestion &&
-                        normalizeAddProjectPathInput(newCwd) !== highlightedAddProjectSuggestion.fullPath
+                        normalizeAddProjectPathInput(newCwd) !==
+                          highlightedAddProjectSuggestion.fullPath
                       ) {
                         event.preventDefault();
                         setNewCwd(highlightedAddProjectSuggestion.fullPath);

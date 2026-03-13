@@ -122,11 +122,7 @@ function RootRouteView() {
   );
 }
 
-function CenteredStatusCard(props: {
-  title: string;
-  message: string;
-  actions?: ReactNode;
-}) {
+function CenteredStatusCard(props: { title: string; message: string; actions?: ReactNode }) {
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-10 text-foreground sm:px-6">
       <div className="pointer-events-none absolute inset-0 opacity-80">
@@ -198,7 +194,10 @@ function LoginView(props: {
             onChange={(event) => setPassword(event.target.value)}
           />
           {submitError ? <p className="text-sm text-destructive">{submitError}</p> : null}
-          <Button type="submit" disabled={submitting || username.trim().length === 0 || password.length === 0}>
+          <Button
+            type="submit"
+            disabled={submitting || username.trim().length === 0 || password.length === 0}
+          >
             {submitting ? "Signing in..." : "Sign in"}
           </Button>
         </form>

@@ -54,5 +54,7 @@ export function resolveProviderAvailability(
   settings: Pick<AppSettings, "codexBinaryPath" | "claudeBinaryPath" | "cursorBinaryPath">,
   fallbackAvailable: boolean,
 ): boolean {
-  return resolveEffectiveProviderStatus(provider, statuses, settings)?.available ?? fallbackAvailable;
+  return (
+    resolveEffectiveProviderStatus(provider, statuses, settings)?.available ?? fallbackAvailable
+  );
 }

@@ -127,7 +127,9 @@ export function normalizePlanSteps(
   return steps.length > 0 ? steps : undefined;
 }
 
-export function normalizeUserInputQuestions(input: unknown): ReadonlyArray<UserInputQuestion> | undefined {
+export function normalizeUserInputQuestions(
+  input: unknown,
+): ReadonlyArray<UserInputQuestion> | undefined {
   const questions = asArray(input);
   if (!questions || questions.length === 0) return undefined;
 
@@ -151,10 +153,7 @@ export function normalizeUserInputQuestions(input: unknown): ReadonlyArray<UserI
             asString(option.value) ??
             asString(option.name) ??
             `Option ${optionIndex + 1}`;
-          const description =
-            asString(option.description) ??
-            asString(option.detail) ??
-            label;
+          const description = asString(option.description) ?? asString(option.detail) ?? label;
           if (label.trim().length === 0 || description.trim().length === 0) {
             return undefined;
           }
@@ -177,7 +176,10 @@ export function normalizeUserInputQuestions(input: unknown): ReadonlyArray<UserI
   return normalized.length > 0 ? normalized : undefined;
 }
 
-export function parseNdjsonChunk(buffer: string, chunk: string): {
+export function parseNdjsonChunk(
+  buffer: string,
+  chunk: string,
+): {
   readonly nextBuffer: string;
   readonly lines: ReadonlyArray<string>;
 } {

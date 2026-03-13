@@ -555,10 +555,7 @@ it.effect("returns unavailable when cursor is missing", () =>
     assert.strictEqual(status.available, false);
     assert.strictEqual(status.status, "error");
     assert.strictEqual(status.authStatus, "unknown");
-    assert.strictEqual(
-      status.message,
-      "Cursor CLI (`agent`) is not installed or not on PATH.",
-    );
+    assert.strictEqual(status.message, "Cursor CLI (`agent`) is not installed or not on PATH.");
   }).pipe(Effect.provide(failingSpawnerLayer("spawn agent ENOENT"))),
 );
 

@@ -47,7 +47,10 @@ export class AppAuthManager {
     return Boolean(this.config.username && this.config.password);
   }
 
-  readSessionToken(requestUrl: string | URL | undefined, headers: IncomingHttpHeaders): string | undefined {
+  readSessionToken(
+    requestUrl: string | URL | undefined,
+    headers: IncomingHttpHeaders,
+  ): string | undefined {
     const bearerToken = readBearerToken(headers);
     if (bearerToken) {
       return bearerToken;
@@ -58,10 +61,7 @@ export class AppAuthManager {
     }
 
     try {
-      const url =
-        requestUrl instanceof URL
-          ? requestUrl
-          : new URL(requestUrl, "http://localhost");
+      const url = requestUrl instanceof URL ? requestUrl : new URL(requestUrl, "http://localhost");
       return url.searchParams.get(APP_AUTH_SESSION_QUERY_PARAM) ?? undefined;
     } catch {
       return undefined;
@@ -100,7 +100,10 @@ export class AppAuthManager {
 
     const normalizedExpectedUsername = normalizeUsername(this.config.username);
     const normalizedProvidedUsername = normalizeUsername(input.username);
-    const validUsername = timingSafeEqualString(normalizedProvidedUsername, normalizedExpectedUsername);
+    const validUsername = timingSafeEqualString(
+      normalizedProvidedUsername,
+      normalizedExpectedUsername,
+    );
     const validPassword = timingSafeEqualString(input.password, this.config.password);
 
     if (!validUsername || !validPassword) {
@@ -108,8 +111,7 @@ export class AppAuthManager {
     }
 
     const token = crypto.randomBytes(32).toString("base64url");
-    const expiresAt =
-      Date.now() + Math.max(1, this.config.sessionTtlDays) * 24 * 60 * 60 * 1000;
+    const expiresAt = Date.now() + Math.max(1, this.config.sessionTtlDays) * 24 * 60 * 60 * 1000;
     const session: AppAuthSessionRecord = {
       token,
       username: normalizedExpectedUsername,

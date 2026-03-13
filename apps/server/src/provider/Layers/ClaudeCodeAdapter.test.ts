@@ -2,9 +2,7 @@ import { ThreadId } from "@t3tools/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Fiber, Random, Stream } from "effect";
 
-import {
-  ProviderAdapterValidationError,
-} from "../Errors.ts";
+import { ProviderAdapterValidationError } from "../Errors.ts";
 import { ClaudeCodeAdapter } from "../Services/ClaudeCodeAdapter.ts";
 import {
   makeClaudeCodeAdapterLive,
@@ -38,12 +36,8 @@ function makeHarness(config?: {
       processes.push(proc);
       return proc as any;
     },
-    ...(config?.nativeEventLogger
-      ? { nativeEventLogger: config.nativeEventLogger }
-      : {}),
-    ...(config?.nativeEventLogPath
-      ? { nativeEventLogPath: config.nativeEventLogPath }
-      : {}),
+    ...(config?.nativeEventLogger ? { nativeEventLogger: config.nativeEventLogger } : {}),
+    ...(config?.nativeEventLogPath ? { nativeEventLogPath: config.nativeEventLogPath } : {}),
   };
 
   return {
@@ -115,88 +109,91 @@ describe("ClaudeCodeAdapterLive", () => {
     );
   });
 
-  it.effect("supports rollbackThread by trimming in-memory turns and preserving earlier turns", () => {
-    const harness = makeHarness();
-    return Effect.gen(function* () {
-      const adapter = yield* ClaudeCodeAdapter;
+  it.effect(
+    "supports rollbackThread by trimming in-memory turns and preserving earlier turns",
+    () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeCodeAdapter;
 
-      const session = yield* adapter.startSession({
-        threadId: THREAD_ID,
-        provider: "claudeCode",
-        runtimeMode: "full-access",
-      });
+        const session = yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: "claudeCode",
+          runtimeMode: "full-access",
+        });
 
-      // First turn
-      const firstTurn = yield* adapter.sendTurn({
-        threadId: session.threadId,
-        input: "first",
-        attachments: [],
-      });
+        // First turn
+        const firstTurn = yield* adapter.sendTurn({
+          threadId: session.threadId,
+          input: "first",
+          attachments: [],
+        });
 
-      const firstCompletedFiber = yield* Stream.filter(adapter.streamEvents, (event) => event.type === "turn.completed").pipe(
-        Stream.runHead,
-        Effect.forkChild,
+        const firstCompletedFiber = yield* Stream.filter(
+          adapter.streamEvents,
+          (event) => event.type === "turn.completed",
+        ).pipe(Stream.runHead, Effect.forkChild);
+
+        const proc1 = harness.getLastProcess()!;
+        proc1.emitLine({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          errors: [],
+          session_id: "cli-session-rollback",
+        });
+        proc1.exit(0);
+
+        const firstCompleted = yield* Fiber.join(firstCompletedFiber);
+        assert.equal(firstCompleted._tag, "Some");
+        if (firstCompleted._tag === "Some" && firstCompleted.value.type === "turn.completed") {
+          assert.equal(String(firstCompleted.value.turnId), String(firstTurn.turnId));
+        }
+
+        // Second turn
+        const secondTurn = yield* adapter.sendTurn({
+          threadId: session.threadId,
+          input: "second",
+          attachments: [],
+        });
+
+        const secondCompletedFiber = yield* Stream.filter(
+          adapter.streamEvents,
+          (event) => event.type === "turn.completed",
+        ).pipe(Stream.runHead, Effect.forkChild);
+
+        const proc2 = harness.getLastProcess()!;
+        proc2.emitLine({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          errors: [],
+          session_id: "cli-session-rollback",
+        });
+        proc2.exit(0);
+
+        const secondCompleted = yield* Fiber.join(secondCompletedFiber);
+        assert.equal(secondCompleted._tag, "Some");
+        if (secondCompleted._tag === "Some" && secondCompleted.value.type === "turn.completed") {
+          assert.equal(String(secondCompleted.value.turnId), String(secondTurn.turnId));
+        }
+
+        const threadBeforeRollback = yield* adapter.readThread(session.threadId);
+        assert.equal(threadBeforeRollback.turns.length, 2);
+
+        const rolledBack = yield* adapter.rollbackThread(session.threadId, 1);
+        assert.equal(rolledBack.turns.length, 1);
+        assert.equal(rolledBack.turns[0]?.id, firstTurn.turnId);
+
+        const threadAfterRollback = yield* adapter.readThread(session.threadId);
+        assert.equal(threadAfterRollback.turns.length, 1);
+        assert.equal(threadAfterRollback.turns[0]?.id, firstTurn.turnId);
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
       );
-
-      const proc1 = harness.getLastProcess()!;
-      proc1.emitLine({
-        type: "result",
-        subtype: "success",
-        is_error: false,
-        errors: [],
-        session_id: "cli-session-rollback",
-      });
-      proc1.exit(0);
-
-      const firstCompleted = yield* Fiber.join(firstCompletedFiber);
-      assert.equal(firstCompleted._tag, "Some");
-      if (firstCompleted._tag === "Some" && firstCompleted.value.type === "turn.completed") {
-        assert.equal(String(firstCompleted.value.turnId), String(firstTurn.turnId));
-      }
-
-      // Second turn
-      const secondTurn = yield* adapter.sendTurn({
-        threadId: session.threadId,
-        input: "second",
-        attachments: [],
-      });
-
-      const secondCompletedFiber = yield* Stream.filter(adapter.streamEvents, (event) => event.type === "turn.completed").pipe(
-        Stream.runHead,
-        Effect.forkChild,
-      );
-
-      const proc2 = harness.getLastProcess()!;
-      proc2.emitLine({
-        type: "result",
-        subtype: "success",
-        is_error: false,
-        errors: [],
-        session_id: "cli-session-rollback",
-      });
-      proc2.exit(0);
-
-      const secondCompleted = yield* Fiber.join(secondCompletedFiber);
-      assert.equal(secondCompleted._tag, "Some");
-      if (secondCompleted._tag === "Some" && secondCompleted.value.type === "turn.completed") {
-        assert.equal(String(secondCompleted.value.turnId), String(secondTurn.turnId));
-      }
-
-      const threadBeforeRollback = yield* adapter.readThread(session.threadId);
-      assert.equal(threadBeforeRollback.turns.length, 2);
-
-      const rolledBack = yield* adapter.rollbackThread(session.threadId, 1);
-      assert.equal(rolledBack.turns.length, 1);
-      assert.equal(rolledBack.turns[0]?.id, firstTurn.turnId);
-
-      const threadAfterRollback = yield* adapter.readThread(session.threadId);
-      assert.equal(threadAfterRollback.turns.length, 1);
-      assert.equal(threadAfterRollback.turns[0]?.id, firstTurn.turnId);
-    }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
-    );
-  });
+    },
+  );
 
   it.effect("passes Claude session options through to the CLI process environment and args", () => {
     const harness = makeHarness();
@@ -252,10 +249,13 @@ describe("ClaudeCodeAdapterLive", () => {
           "stream-json",
           "--include-partial-messages",
         ]);
-        assert.deepEqual(
-          spawn.args.slice(5, 10),
-          ["--permission-mode", "plan", "--model", "claude-opus-4-6", "--resume"],
-        );
+        assert.deepEqual(spawn.args.slice(5, 10), [
+          "--permission-mode",
+          "plan",
+          "--model",
+          "claude-opus-4-6",
+          "--resume",
+        ]);
         assert.equal(spawn.args[10], "resume-session-1");
         assert.equal(spawn.args.includes("--append-system-prompt"), true);
         assert.equal(spawn.env.MAX_THINKING_TOKENS, "4096");
@@ -369,7 +369,10 @@ describe("ClaudeCodeAdapterLive", () => {
       assert.equal(turnCompleted._tag, "Some");
 
       assert.equal(nativeEvents.length > 0, true);
-      assert.equal(nativeEvents.some((record) => record.event?.provider === "claudeCode"), true);
+      assert.equal(
+        nativeEvents.some((record) => record.event?.provider === "claudeCode"),
+        true,
+      );
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

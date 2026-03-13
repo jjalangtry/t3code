@@ -1,14 +1,17 @@
 # Cursor + Claude CLI Codex-Parity Plan
 
 ## Summary
+
 Bring `cursor` and `claudeCode` up to the same product tier as `codex` for thread lifecycle, provider selection, health/status, plan mode, plan sidebar/proposed-plan cards, approvals, resume, rollback, and orchestration projection.
 
 This will be a CLI-first design for both providers:
+
 - `Claude Code` moves from the current SDK-backed adapter to a CLI-backed adapter.
 - `Cursor` becomes a first-class provider with a new adapter.
 - The existing web plan UI stays mostly unchanged; parity comes from emitting the same canonical runtime events Codex already emits.
 
 ## Public API / Type Changes
+
 - Extend `ProviderKind` to `codex | claudeCode | cursor`.
 - Extend all provider-keyed records to include `cursor`: model defaults, aliases, health status, picker options, store inference, settings state.
 - Add `CursorProviderStartOptions` to `ProviderStartOptions` with `binaryPath?: string`.
@@ -18,6 +21,7 @@ This will be a CLI-first design for both providers:
 - No SQL migration: provider/session tables already store provider names as `TEXT`.
 
 ## Server Architecture
+
 - Add a shared CLI-provider core under `apps/server/src/provider/cli/` for:
   - logical session registry
   - per-turn resume checkpoint journal
@@ -38,6 +42,7 @@ This will be a CLI-first design for both providers:
   - `request.resolved`
 
 ## Claude Implementation
+
 - Replace the live `ClaudeCodeAdapter` internals with a CLI-backed adapter while keeping the same service tag.
 - Spawn Claude in headless JSON mode per turn with resume support, model selection, and internal MCP config.
 - Route Claude permission prompts through `--permission-prompt-tool` to the internal MCP control server so the existing approval UI continues to work.
@@ -46,6 +51,7 @@ This will be a CLI-first design for both providers:
 - Remove `@anthropic-ai/claude-agent-sdk` from the production path after parity tests are green.
 
 ## Cursor Implementation
+
 - Add a new first-class `CursorAdapter` and register it in `ProviderAdapterRegistry`.
 - Use two runtime paths:
   - `full-access` and `interactionMode=plan`: `cursor-agent --print --output-format stream-json` with resume, internal MCP tools, and structured canonical event mapping.
@@ -58,6 +64,7 @@ This will be a CLI-first design for both providers:
 - Implement local turn journaling and rollback the same way as Claude.
 
 ## Web / UX Changes
+
 - Remove the current fake `cursor` picker hack and make Cursor a real `ProviderKind`.
 - Update `ChatView`, stores, settings, and session logic so provider handling is exhaustive and not Codex/Claude-special-cased except where traits truly differ.
 - Keep the current plan sidebar, proposed-plan card, follow-up banner, and implement-plan flow unchanged; new providers must feed them identical orchestration events.
@@ -70,12 +77,14 @@ This will be a CLI-first design for both providers:
 - Leave Cursor without extra provider-specific composer traits for now.
 
 ## Rollout
+
 - Ship behind parity gates, not as partially available providers.
 - Add feature flags for the new runtime paths, with both providers hidden or marked unavailable until parity tests pass.
 - Keep startup health checks for `codex`, `claude`, and `cursor`.
 - Health remains startup/PATH-based for now; per-session binary-path overrides still work when launching turns.
 
 ## Tests and Acceptance
+
 - Contract tests for new provider enums, defaults, settings, and model resolution.
 - Adapter unit tests for:
   - Claude JSON stream parsing
@@ -99,6 +108,7 @@ This will be a CLI-first design for both providers:
 - Acceptance bar: the same thread-level scenarios currently passing for real/fake Codex must pass for Claude CLI and Cursor, except for Codex-only traits like reasoning effort / fast mode.
 
 ## Assumptions / Defaults
+
 - Chosen strategy: `Claude CLI-first`, not SDK-first.
 - Chosen rollout: `flag until parity`.
 - Chosen Cursor strategy: `hybrid adapter` because Cursor’s official non-interactive docs expose structured output and resume, but not an official machine-readable approval callback.
@@ -107,6 +117,7 @@ This will be a CLI-first design for both providers:
 - No database migration is required.
 
 ## External Constraints
+
 - Cursor CLI parameters / resume / MCP: https://docs.cursor.com/en/cli/reference/parameters
 - Cursor CLI MCP support: https://docs.cursor.com/cli/mcp
 - Cursor tool approvals / MCP approvals / guardrails: https://docs.cursor.com/en/context/mcp and https://docs.cursor.com/agent/tools

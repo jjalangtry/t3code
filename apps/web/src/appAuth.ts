@@ -72,9 +72,7 @@ export function appendAppAuthSessionToUrl(rawUrl: string): string {
     return rawUrl.startsWith("/") ? `${resolveServerHttpOrigin()}${rawUrl}` : rawUrl;
   }
 
-  const url = rawUrl.startsWith("/")
-    ? new URL(rawUrl, resolveServerHttpOrigin())
-    : new URL(rawUrl);
+  const url = rawUrl.startsWith("/") ? new URL(rawUrl, resolveServerHttpOrigin()) : new URL(rawUrl);
   url.searchParams.set("auth_session", sessionToken);
   return url.toString();
 }

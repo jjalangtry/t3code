@@ -475,8 +475,10 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     } satisfies OrchestrationCommand;
   });
 
-  const readAppAuthSessionToken = (requestUrl: string | URL | undefined, headers: http.IncomingHttpHeaders) =>
-    appAuth.readSessionToken(requestUrl, headers);
+  const readAppAuthSessionToken = (
+    requestUrl: string | URL | undefined,
+    headers: http.IncomingHttpHeaders,
+  ) => appAuth.readSessionToken(requestUrl, headers);
 
   const isAppAuthAuthorized = (
     requestUrl: string | URL | undefined,
@@ -499,7 +501,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
       res.end(body);
     };
 
-      void Effect.runPromise(
+    void Effect.runPromise(
       Effect.gen(function* () {
         const url = new URL(req.url ?? "/", `http://localhost:${port}`);
         const requestSessionToken = readAppAuthSessionToken(url, req.headers);
@@ -567,9 +569,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
                 ...AUTH_CORS_HEADERS,
                 "Content-Type": "application/json; charset=utf-8",
               },
-              JSON.stringify(
-                encodeAuthErrorResponse({ message: "Invalid username or password." }),
-              ),
+              JSON.stringify(encodeAuthErrorResponse({ message: "Invalid username or password." })),
             );
             return;
           }
@@ -596,7 +596,11 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         }
 
         if (url.pathname === PROJECT_FAVICON_PATH && !isAppAuthAuthorized(url, req.headers)) {
-          respond(401, { "Content-Type": "text/plain", "Cache-Control": "no-store" }, "Unauthorized");
+          respond(
+            401,
+            { "Content-Type": "text/plain", "Cache-Control": "no-store" },
+            "Unauthorized",
+          );
           return;
         }
 
@@ -606,7 +610,11 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
         if (url.pathname.startsWith(ATTACHMENTS_ROUTE_PREFIX)) {
           if (!isAppAuthAuthorized(url, req.headers)) {
-            respond(401, { "Content-Type": "text/plain", "Cache-Control": "no-store" }, "Unauthorized");
+            respond(
+              401,
+              { "Content-Type": "text/plain", "Cache-Control": "no-store" },
+              "Unauthorized",
+            );
             return;
           }
           const rawRelativePath = url.pathname.slice(ATTACHMENTS_ROUTE_PREFIX.length);
@@ -752,9 +760,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         respond(
           200,
           { "Content-Type": contentType },
-          contentType.startsWith("text/html")
-            ? injectWebsocketAuthIntoHtml(data, authToken)
-            : data,
+          contentType.startsWith("text/html") ? injectWebsocketAuthIntoHtml(data, authToken) : data,
         );
       }),
     ).catch(() => {

@@ -476,25 +476,17 @@ label:has(> select#reasoning-effort) select {
 
 /* iOS 26-style glass effect utilities */
 .glass-depth-1 {
-  background: linear-gradient(
-    135deg,
-    rgba(255, 255, 255, 0.12),
-    rgba(255, 255, 255, 0.04)
-  );
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04));
   backdrop-filter: blur(12px) saturate(140%);
   -webkit-backdrop-filter: blur(12px) saturate(140%);
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow:
     0 2px 8px rgba(0, 0, 0, 0.08),
     inset 0 0.5px 0 rgba(255, 255, 255, 0.14);
 }
 
 .dark .glass-depth-1 {
-  background: linear-gradient(
-    135deg,
-    rgba(255, 255, 255, 0.07),
-    rgba(255, 255, 255, 0.02)
-  );
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02));
   border: 1px solid rgba(255, 255, 255, 0.06);
   box-shadow:
     0 2px 8px rgba(0, 0, 0, 0.25),
@@ -503,8 +495,13 @@ label:has(> select#reasoning-effort) select {
 
 /* Streaming text cursor animation */
 @keyframes blink-cursor {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
 }
 
 .streaming-cursor::after {
@@ -520,15 +517,27 @@ label:has(> select#reasoning-effort) select {
 
 /* Haptic pulse feedback animations */
 @keyframes haptic-start {
-  0% { transform: scale(1); }
-  30% { transform: scale(1.01); }
-  100% { transform: scale(1); }
+  0% {
+    transform: scale(1);
+  }
+  30% {
+    transform: scale(1.01);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 @keyframes haptic-stop {
-  0% { transform: scale(1); }
-  50% { transform: scale(0.995); }
-  100% { transform: scale(1); }
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.995);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 .haptic-start {

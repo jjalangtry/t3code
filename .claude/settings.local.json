@@ -1,8 +1,5 @@
 {
   "permissions": {
-    "allow": [
-      "Bash(git fetch:*)",
-      "Bash(gh api:*)"
-    ]
+    "allow": ["Bash(git fetch:*)", "Bash(gh api:*)"]
   }
 }

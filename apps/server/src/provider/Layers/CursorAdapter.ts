@@ -165,7 +165,8 @@ function turnStatusFromCursorResult(line: Record<string, unknown>): ProviderRunt
   if (subtype === "success") {
     return "completed";
   }
-  const errors = `${asString(line.result) ?? ""} ${JSON.stringify(line.errors ?? [])}`.toLowerCase();
+  const errors =
+    `${asString(line.result) ?? ""} ${JSON.stringify(line.errors ?? [])}`.toLowerCase();
   if (errors.includes("interrupt")) {
     return "interrupted";
   }
@@ -373,7 +374,9 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
         turnId: turnState.turnId,
         payload: {
           state: status,
-          ...(asString(resultLine?.stop_reason) ? { stopReason: asString(resultLine?.stop_reason) } : {}),
+          ...(asString(resultLine?.stop_reason)
+            ? { stopReason: asString(resultLine?.stop_reason) }
+            : {}),
           ...(resultLine?.usage !== undefined ? { usage: resultLine.usage } : {}),
           ...(isRecord(resultLine?.modelUsage) ? { modelUsage: resultLine.modelUsage } : {}),
           ...(typeof resultLine?.total_cost_usd === "number"
@@ -407,7 +410,10 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
       context.turnState = undefined;
     };
 
-    const ensureProviderThreadId = (context: CursorSessionContext, sessionId: string | undefined): void => {
+    const ensureProviderThreadId = (
+      context: CursorSessionContext,
+      sessionId: string | undefined,
+    ): void => {
       if (!sessionId || context.providerThreadId === sessionId) return;
       context.providerThreadId = sessionId;
       context.session = {
@@ -415,7 +421,9 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
         resumeCursor: {
           threadId: context.session.threadId,
           resume: sessionId,
-          ...(context.lastAssistantMessageId ? { resumeSessionAt: context.lastAssistantMessageId } : {}),
+          ...(context.lastAssistantMessageId
+            ? { resumeSessionAt: context.lastAssistantMessageId }
+            : {}),
           turnCount: context.turns.length,
         },
         updatedAt: nowIso(),
@@ -514,7 +522,10 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
       }
     };
 
-    const handleCliMessage = (context: CursorSessionContext, line: Record<string, unknown>): void => {
+    const handleCliMessage = (
+      context: CursorSessionContext,
+      line: Record<string, unknown>,
+    ): void => {
       const messageType = asString(line.type) ?? "unknown";
       const turnId = context.turnState?.turnId;
       logNativeLine(context, turnId, `cursor.cli/${messageType}`, line);
@@ -547,7 +558,9 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
           const block = isRecord(event.content_block) ? event.content_block : undefined;
           if (
             block &&
-            (block.type === "tool_use" || block.type === "server_tool_use" || block.type === "mcp_tool_use")
+            (block.type === "tool_use" ||
+              block.type === "server_tool_use" ||
+              block.type === "mcp_tool_use")
           ) {
             handleToolStart(context, asNumber(event.index) ?? 0, block);
           }
@@ -723,9 +736,9 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
         const errorMessage =
           status === "completed"
             ? undefined
-            : asString(line.result) ??
-              (asArray(line.errors)?.find((entry): entry is string => typeof entry === "string") ??
-                "Cursor turn failed.");
+            : (asString(line.result) ??
+              asArray(line.errors)?.find((entry): entry is string => typeof entry === "string") ??
+              "Cursor turn failed.");
         if (status === "failed" && errorMessage) {
           emitRuntimeError(context, errorMessage, {
             turnId: context.turnState?.turnId,
@@ -816,7 +829,9 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
       });
     };
 
-    const requireSession = (threadId: ThreadId): Effect.Effect<CursorSessionContext, ProviderAdapterError> => {
+    const requireSession = (
+      threadId: ThreadId,
+    ): Effect.Effect<CursorSessionContext, ProviderAdapterError> => {
       const context = sessions.get(threadId);
       if (!context) {
         return Effect.fail(
@@ -1069,7 +1084,11 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
         return snapshotThread(context);
       });
 
-    const respondToRequest: CursorAdapterShape["respondToRequest"] = (threadId, requestId, _decision) =>
+    const respondToRequest: CursorAdapterShape["respondToRequest"] = (
+      threadId,
+      requestId,
+      _decision,
+    ) =>
       Effect.fail(
         new ProviderAdapterRequestError({
           provider: PROVIDER,
@@ -1078,7 +1097,11 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
         }),
       );
 
-    const respondToUserInput: CursorAdapterShape["respondToUserInput"] = (threadId, requestId, _answers) =>
+    const respondToUserInput: CursorAdapterShape["respondToUserInput"] = (
+      threadId,
+      requestId,
+      _answers,
+    ) =>
       Effect.fail(
         new ProviderAdapterRequestError({
           provider: PROVIDER,

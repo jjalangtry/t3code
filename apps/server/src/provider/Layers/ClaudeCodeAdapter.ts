@@ -171,7 +171,8 @@ function turnStatusFromClaudeResult(line: Record<string, unknown>): ProviderRunt
   if (subtype === "success") {
     return "completed";
   }
-  const errors = `${asString(line.result) ?? ""} ${JSON.stringify(line.errors ?? [])}`.toLowerCase();
+  const errors =
+    `${asString(line.result) ?? ""} ${JSON.stringify(line.errors ?? [])}`.toLowerCase();
   if (errors.includes("interrupt")) {
     return "interrupted";
   }
@@ -402,7 +403,9 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
         turnId: turnState.turnId,
         payload: {
           state: status,
-          ...(asString(resultLine?.stop_reason) ? { stopReason: asString(resultLine?.stop_reason) } : {}),
+          ...(asString(resultLine?.stop_reason)
+            ? { stopReason: asString(resultLine?.stop_reason) }
+            : {}),
           ...(resultLine?.usage !== undefined ? { usage: resultLine.usage } : {}),
           ...(isRecord(resultLine?.modelUsage) ? { modelUsage: resultLine.modelUsage } : {}),
           ...(typeof resultLine?.total_cost_usd === "number"
@@ -436,7 +439,10 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
       context.turnState = undefined;
     };
 
-    const ensureProviderThreadId = (context: ClaudeSessionContext, sessionId: string | undefined): void => {
+    const ensureProviderThreadId = (
+      context: ClaudeSessionContext,
+      sessionId: string | undefined,
+    ): void => {
       if (!sessionId || context.providerThreadId === sessionId) return;
       context.providerThreadId = sessionId;
       context.session = {
@@ -444,7 +450,9 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
         resumeCursor: {
           threadId: context.session.threadId,
           resume: sessionId,
-          ...(context.lastAssistantMessageId ? { resumeSessionAt: context.lastAssistantMessageId } : {}),
+          ...(context.lastAssistantMessageId
+            ? { resumeSessionAt: context.lastAssistantMessageId }
+            : {}),
           turnCount: context.turns.length,
         },
         updatedAt: nowIso(),
@@ -543,7 +551,10 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
       }
     };
 
-    const handleCliMessage = (context: ClaudeSessionContext, line: Record<string, unknown>): void => {
+    const handleCliMessage = (
+      context: ClaudeSessionContext,
+      line: Record<string, unknown>,
+    ): void => {
       const messageType = asString(line.type) ?? "unknown";
       const turnId = context.turnState?.turnId;
       logNativeLine(context, turnId, `claude.cli/${messageType}`, line);
@@ -576,7 +587,9 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
           const block = isRecord(event.content_block) ? event.content_block : undefined;
           if (
             block &&
-            (block.type === "tool_use" || block.type === "server_tool_use" || block.type === "mcp_tool_use")
+            (block.type === "tool_use" ||
+              block.type === "server_tool_use" ||
+              block.type === "mcp_tool_use")
           ) {
             handleToolStart(context, asNumber(event.index) ?? 0, block);
           }
@@ -727,9 +740,9 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
         const errorMessage =
           status === "completed"
             ? undefined
-            : asString(line.result) ??
-              (asArray(line.errors)?.find((entry): entry is string => typeof entry === "string") ??
-                "Claude turn failed.");
+            : (asString(line.result) ??
+              asArray(line.errors)?.find((entry): entry is string => typeof entry === "string") ??
+              "Claude turn failed.");
         if (status === "failed" && errorMessage) {
           emitRuntimeError(context, errorMessage, {
             turnId: context.turnState?.turnId,
@@ -820,7 +833,9 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
       });
     };
 
-    const requireSession = (threadId: ThreadId): Effect.Effect<ClaudeSessionContext, ProviderAdapterError> => {
+    const requireSession = (
+      threadId: ThreadId,
+    ): Effect.Effect<ClaudeSessionContext, ProviderAdapterError> => {
       const context = sessions.get(threadId);
       if (!context) {
         return Effect.fail(
@@ -882,12 +897,8 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
           session,
           binaryPath: providerOptions?.binaryPath ?? "claude",
           defaultPermissionMode: permissionMode,
-          ...(defaultThinkingEnabled !== undefined
-            ? { defaultThinkingEnabled }
-            : {}),
-          ...(defaultMaxThinkingTokens !== undefined
-            ? { defaultMaxThinkingTokens }
-            : {}),
+          ...(defaultThinkingEnabled !== undefined ? { defaultThinkingEnabled } : {}),
+          ...(defaultMaxThinkingTokens !== undefined ? { defaultMaxThinkingTokens } : {}),
           turns: [],
           turnState: undefined,
           providerThreadId: resumeState.resume,
@@ -917,9 +928,7 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
               ...(input.model ? { model: input.model } : {}),
               permissionMode,
               binaryPath: context.binaryPath,
-              ...(defaultThinkingEnabled !== undefined
-                ? { thinking: defaultThinkingEnabled }
-                : {}),
+              ...(defaultThinkingEnabled !== undefined ? { thinking: defaultThinkingEnabled } : {}),
               ...(defaultMaxThinkingTokens !== undefined
                 ? { maxThinkingTokens: defaultMaxThinkingTokens }
                 : {}),
@@ -965,7 +974,7 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
         const turnId = TurnIdBrand.makeUnsafe(crypto.randomUUID());
         const selectedModel = input.model ?? context.session.model;
         const permissionMode =
-          input.interactionMode === "plan" ? "plan" : context.defaultPermissionMode ?? "default";
+          input.interactionMode === "plan" ? "plan" : (context.defaultPermissionMode ?? "default");
         const thinkingEnabled =
           input.modelOptions?.claudeCode?.thinking ?? context.defaultThinkingEnabled;
         const maxThinkingTokens = context.defaultMaxThinkingTokens;
@@ -1103,7 +1112,11 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
         return snapshotThread(context);
       });
 
-    const respondToRequest: ClaudeCodeAdapterShape["respondToRequest"] = (threadId, requestId, _decision) =>
+    const respondToRequest: ClaudeCodeAdapterShape["respondToRequest"] = (
+      threadId,
+      requestId,
+      _decision,
+    ) =>
       Effect.fail(
         new ProviderAdapterRequestError({
           provider: PROVIDER,
@@ -1112,7 +1125,11 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
         }),
       );
 
-    const respondToUserInput: ClaudeCodeAdapterShape["respondToUserInput"] = (threadId, requestId, _answers) =>
+    const respondToUserInput: ClaudeCodeAdapterShape["respondToUserInput"] = (
+      threadId,
+      requestId,
+      _answers,
+    ) =>
       Effect.fail(
         new ProviderAdapterRequestError({
           provider: PROVIDER,

@@ -393,7 +393,11 @@ const make = Effect.gen(function* () {
       thread.messages.length > 0;
     let normalizedInput = toNonEmptyProviderInput(input.messageText);
     if (didSwitch) {
-      const contextBlock = buildContextTransferBlock(thread.messages, providerBefore, input.provider!);
+      const contextBlock = buildContextTransferBlock(
+        thread.messages,
+        providerBefore,
+        input.provider!,
+      );
       normalizedInput = normalizedInput ? `${contextBlock}\n\n${normalizedInput}` : contextBlock;
     }
     const normalizedAttachments = input.attachments ?? [];

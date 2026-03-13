@@ -16,7 +16,13 @@ import { ensureNativeApi } from "../nativeApi";
 import { preferredTerminalEditor } from "../terminal-links";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../components/ui/select";
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
 import { Switch } from "../components/ui/switch";
 import { SidebarTrigger } from "../components/ui/sidebar";
 import { APP_VERSION } from "../branding";
@@ -430,7 +436,8 @@ function SettingsRouteView() {
                   <span className="text-xs text-muted-foreground">
                     {APP_CLAUDE_THINKING_MODE_OPTIONS.find(
                       (option) => option.value === claudeThinkingMode,
-                    )?.description ?? "Use Claude Code defaults unless a session override is configured elsewhere."}
+                    )?.description ??
+                      "Use Claude Code defaults unless a session override is configured elsewhere."}
                   </span>
                 </label>
 
@@ -471,7 +478,9 @@ function SettingsRouteView() {
                 <div className="flex flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
                   <p className="min-w-0 break-words">
                     Claude:{" "}
-                    <span className="font-medium text-foreground">{claudeBinaryPath || "PATH"}</span>
+                    <span className="font-medium text-foreground">
+                      {claudeBinaryPath || "PATH"}
+                    </span>
                     {" · "}
                     Permission:{" "}
                     <span className="font-medium text-foreground">{claudePermissionMode}</span>
@@ -480,7 +489,9 @@ function SettingsRouteView() {
                     <span className="font-medium text-foreground">{claudeThinkingMode}</span>
                     {" · "}
                     Cursor:{" "}
-                    <span className="font-medium text-foreground">{cursorBinaryPath || "PATH"}</span>
+                    <span className="font-medium text-foreground">
+                      {cursorBinaryPath || "PATH"}
+                    </span>
                   </p>
                   <Button
                     size="xs"

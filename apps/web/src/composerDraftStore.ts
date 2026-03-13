@@ -850,8 +850,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
         }
         set((state) => {
           const existing = state.draftsByThreadId[threadId];
-          const normalizedModel =
-            normalizeModelSlug(model, existing?.provider ?? "codex") ?? null;
+          const normalizedModel = normalizeModelSlug(model, existing?.provider ?? "codex") ?? null;
           if (!existing && normalizedModel === null) {
             return state;
           }

@@ -33,8 +33,7 @@ export const APP_CLAUDE_PERMISSION_MODE_OPTIONS = [
     description: "Skip Claude Code permission prompts entirely.",
   },
 ] as const;
-export type AppClaudePermissionMode =
-  (typeof APP_CLAUDE_PERMISSION_MODE_OPTIONS)[number]["value"];
+export type AppClaudePermissionMode = (typeof APP_CLAUDE_PERMISSION_MODE_OPTIONS)[number]["value"];
 const AppClaudePermissionModeSchema = Schema.Literals([
   "inherit",
   "default",
@@ -116,9 +115,7 @@ export function resolveAppClaudePermissionMode(
   return permissionMode === "inherit" ? undefined : permissionMode;
 }
 
-export function resolveAppClaudeThinking(
-  thinkingMode: AppClaudeThinkingMode,
-): boolean | undefined {
+export function resolveAppClaudeThinking(thinkingMode: AppClaudeThinkingMode): boolean | undefined {
   switch (thinkingMode) {
     case "on":
       return true;
