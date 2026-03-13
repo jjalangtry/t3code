@@ -107,6 +107,15 @@ struct ConnectionErrorFormatter {
             }
         }
 
+        let nsError = error as NSError
+        if nsError.domain == NSPOSIXErrorDomain, nsError.code == 40 {
+            return "The server response was too large. Try clearing old threads or reducing history."
+        }
+
+        if nsError.localizedDescription.localizedCaseInsensitiveContains("message too long") {
+            return "The server response was too large. Try clearing old threads or reducing history."
+        }
+
         if let transportError = error as? TransportError {
             switch transportError {
             case .serverError(let message):

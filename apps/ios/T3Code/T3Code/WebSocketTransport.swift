@@ -25,6 +25,7 @@ actor WebSocketTransport {
     private static let requestTimeoutSeconds: TimeInterval = 15
     private static let connectTimeoutSeconds: TimeInterval = 10
     private static let reconnectDelays: [TimeInterval] = [0.5, 1, 2, 4, 8]
+    private static let maximumMessageSizeBytes = 0
 
     struct PendingRequest {
         let continuation: CheckedContinuation<Any?, any Error>
@@ -50,6 +51,7 @@ actor WebSocketTransport {
         webSocketTask?.cancel(with: .goingAway, reason: nil)
 
         let task = session.webSocketTask(with: url)
+        task.maximumMessageSize = Self.maximumMessageSizeBytes
         webSocketTask = task
         task.resume()
         let isReconnectAttempt = hasConnectedSuccessfully
