@@ -65,14 +65,7 @@ const fakeCursorAdapter: CursorAdapterShape = {
 
 const layer = it.layer(
   Layer.mergeAll(
-    Layer.provide(
-      ProviderAdapterRegistryLive,
-      Layer.mergeAll(
-        Layer.succeed(CodexAdapter, fakeCodexAdapter),
-        Layer.succeed(ClaudeCodeAdapter, fakeClaudeAdapter),
-        Layer.succeed(CursorAdapter, fakeCursorAdapter),
-      ),
-    ),
+    Layer.provide(ProviderAdapterRegistryLive, Layer.succeed(CodexAdapter, fakeCodexAdapter)),
     NodeServices.layer,
   ),
 );
