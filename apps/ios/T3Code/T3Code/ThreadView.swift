@@ -6,6 +6,34 @@ import UniformTypeIdentifiers
 private let imageOnlyBootstrapPrompt =
     "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]"
 
+// MARK: - Shared Date Formatters (avoid allocations per render)
+
+private enum DateFormatting {
+    static let isoFormatterWithFractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    static let isoFormatterBasic: ISO8601DateFormatter = {
+        ISO8601DateFormatter()
+    }()
+
+    static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    static func formatTime(_ iso: String) -> String {
+        guard let date = isoFormatterWithFractional.date(from: iso)
+            ?? isoFormatterBasic.date(from: iso) else {
+            return ""
+        }
+        return timeFormatter.string(from: date)
+    }
+}
+
 struct ThreadView: View {
     @Environment(SessionStore.self) private var store
     let threadId: ThreadId
@@ -260,7 +288,7 @@ struct ThreadView: View {
                 }
                 .buttonStyle(.plain)
                 .modifier(GlassCircleModifier(tint: nil))
-                .popover(isPresented: $showComposerMenu, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
+                .popover(isPresented: $showComposerMenu) {
                     VStack(alignment: .leading, spacing: 12) {
                         PhotosPicker(
                             selection: $selectedPhotoItems,
@@ -355,7 +383,7 @@ struct ThreadView: View {
             }
             .padding(.horizontal, 12)
             .padding(.top, 8)
-            .padding(.bottom, 20)
+            .padding(.bottom, 10)
         }
     }
 
@@ -530,7 +558,17 @@ struct ThreadView: View {
     }
 
     private func loadPhotoAttachments(_ items: [PhotosPickerItem]) async {
+        let maxAttachments = 4
         for item in items {
+            // Check attachment limit
+            let currentCount = await MainActor.run { selectedAttachments.count }
+            guard currentCount < maxAttachments else {
+                await MainActor.run {
+                    errorMessage = "Maximum \(maxAttachments) attachments allowed."
+                }
+                break
+            }
+            
             do {
                 guard let data = try await item.loadTransferable(type: Data.self) else { continue }
                 let attachment = try makeAttachment(
@@ -589,13 +627,40 @@ struct ThreadView: View {
     }
 
     private func makeAttachment(data: Data, suggestedName: String, mimeType: String) throws -> PendingComposerAttachment {
-        let base64 = data.base64EncodedString()
-        let dataURL = "data:\(mimeType);base64,\(base64)"
+        // Downscale large images to reduce memory usage
+        let processedData: Data
+        let finalMimeType: String
+        
+        if mimeType.hasPrefix("image/"),
+           let image = UIImage(data: data) {
+            let maxDimension: CGFloat = 1600
+            let scale = min(maxDimension / max(image.size.width, image.size.height), 1.0)
+            
+            if scale < 1.0 {
+                let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+                let renderer = UIGraphicsImageRenderer(size: newSize)
+                let resized = renderer.image { _ in
+                    image.draw(in: CGRect(origin: .zero, size: newSize))
+                }
+                processedData = resized.jpegData(compressionQuality: 0.85) ?? data
+                finalMimeType = "image/jpeg"
+            } else {
+                // Compress even if not resizing
+                processedData = image.jpegData(compressionQuality: 0.85) ?? data
+                finalMimeType = "image/jpeg"
+            }
+        } else {
+            processedData = data
+            finalMimeType = mimeType
+        }
+        
+        let base64 = processedData.base64EncodedString()
+        let dataURL = "data:\(finalMimeType);base64,\(base64)"
         return PendingComposerAttachment(
             id: UUID().uuidString,
             name: suggestedName,
-            mimeType: mimeType,
-            sizeBytes: data.count,
+            mimeType: finalMimeType,
+            sizeBytes: processedData.count,
             dataURL: dataURL
         )
     }
@@ -1120,7 +1185,7 @@ struct MessageBubble: View {
                 .modifier(MessageBubbleSurface(role: message.role, isEnabled: showsBubbleChrome))
                 .foregroundStyle(foregroundColor)
 
-                Text(formatTime(message.createdAt))
+                Text(DateFormatting.formatTime(message.createdAt))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
@@ -1132,17 +1197,6 @@ struct MessageBubble: View {
 
     private var foregroundColor: Color {
         message.role == .user ? .white : .primary
-    }
-
-    private func formatTime(_ iso: String) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        guard let date = formatter.date(from: iso) ?? ISO8601DateFormatter().date(from: iso) else {
-            return ""
-        }
-        let timeFormatter = DateFormatter()
-        timeFormatter.timeStyle = .short
-        return timeFormatter.string(from: date)
     }
 }
 
@@ -1182,7 +1236,7 @@ struct ActivityTimelineRow: View {
                                 .lineLimit(4)
                         }
 
-                        Text(formatTime(activity.createdAt))
+                        Text(DateFormatting.formatTime(activity.createdAt))
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
                     }
@@ -1209,17 +1263,6 @@ struct ActivityTimelineRow: View {
         case .approval: .green
         case .error: .red
         }
-    }
-
-    private func formatTime(_ iso: String) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        guard let date = formatter.date(from: iso) ?? ISO8601DateFormatter().date(from: iso) else {
-            return ""
-        }
-        let timeFormatter = DateFormatter()
-        timeFormatter.timeStyle = .short
-        return timeFormatter.string(from: date)
     }
 }
 

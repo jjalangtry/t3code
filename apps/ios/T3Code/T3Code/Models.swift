@@ -41,7 +41,7 @@ nonisolated enum SessionStatus: String, Codable, Sendable {
     case idle, starting, running, ready, interrupted, stopped, error
 }
 
-nonisolated struct OrchestrationSession: Codable, Sendable {
+nonisolated struct OrchestrationSession: Codable, Sendable, Equatable {
     let threadId: ThreadId
     let status: SessionStatus
     let providerName: String?
@@ -57,7 +57,7 @@ nonisolated enum MessageRole: String, Codable, Sendable {
     case user, assistant, system
 }
 
-nonisolated struct ChatAttachment: Codable, Sendable, Identifiable {
+nonisolated struct ChatAttachment: Codable, Sendable, Identifiable, Equatable {
     let type: String
     let id: String
     let name: String
@@ -65,7 +65,7 @@ nonisolated struct ChatAttachment: Codable, Sendable, Identifiable {
     let sizeBytes: Int
 }
 
-nonisolated struct OrchestrationMessage: Codable, Sendable, Identifiable {
+nonisolated struct OrchestrationMessage: Codable, Sendable, Identifiable, Equatable {
     let id: MessageId
     let role: MessageRole
     let text: String
@@ -82,7 +82,7 @@ nonisolated enum LatestTurnState: String, Codable, Sendable {
     case running, interrupted, completed, error
 }
 
-nonisolated struct LatestTurn: Codable, Sendable {
+nonisolated struct LatestTurn: Codable, Sendable, Equatable {
     let turnId: TurnId
     let state: LatestTurnState
     let requestedAt: String
@@ -97,7 +97,7 @@ nonisolated enum ActivityTone: String, Codable, Sendable {
     case info, tool, approval, error
 }
 
-nonisolated struct ThreadActivity: Codable, Sendable, Identifiable {
+nonisolated struct ThreadActivity: Codable, Sendable, Identifiable, Equatable {
     let id: EventId
     let tone: ActivityTone
     let kind: String
@@ -110,14 +110,14 @@ nonisolated struct ThreadActivity: Codable, Sendable, Identifiable {
 
 // MARK: - Checkpoints
 
-nonisolated struct CheckpointFile: Codable, Sendable {
+nonisolated struct CheckpointFile: Codable, Sendable, Equatable {
     let path: String
     let kind: String
     let additions: Int
     let deletions: Int
 }
 
-nonisolated struct CheckpointSummary: Codable, Sendable {
+nonisolated struct CheckpointSummary: Codable, Sendable, Equatable {
     let turnId: TurnId
     let checkpointTurnCount: Int
     let checkpointRef: CheckpointRef
@@ -129,7 +129,7 @@ nonisolated struct CheckpointSummary: Codable, Sendable {
 
 // MARK: - Proposed Plan
 
-nonisolated struct ProposedPlan: Codable, Sendable, Identifiable {
+nonisolated struct ProposedPlan: Codable, Sendable, Identifiable, Equatable {
     let id: String
     let turnId: TurnId?
     let planMarkdown: String
@@ -139,7 +139,7 @@ nonisolated struct ProposedPlan: Codable, Sendable, Identifiable {
 
 // MARK: - Thread
 
-nonisolated struct OrchestrationThread: Codable, Sendable, Identifiable {
+nonisolated struct OrchestrationThread: Codable, Sendable, Identifiable, Equatable {
     let id: ThreadId
     let projectId: ProjectId
     let title: String
