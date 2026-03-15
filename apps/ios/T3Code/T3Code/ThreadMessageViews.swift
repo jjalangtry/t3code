@@ -183,46 +183,46 @@ struct MessageBubbleSurface: ViewModifier {
         if !isEnabled {
             content
         } else {
-        switch role {
-        case .user:
-            if #available(iOS 26.0, *) {
-                content
-                    .background(Color.blue.opacity(0.92))
-                    .glassEffect(in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-            } else {
-                content
-                    .background(
-                        LinearGradient(
-                            colors: [Color.blue, Color.blue.opacity(0.88)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        in: RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    )
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 28, style: .continuous)
-                            .strokeBorder(.white.opacity(0.18), lineWidth: 0.8)
-                    }
-                    .shadow(color: .blue.opacity(0.22), radius: 18, y: 8)
+            switch role {
+            case .user:
+                if #available(iOS 26.0, *) {
+                    content
+                        .background(.clear)
+                        .glassEffect(.regular.tint(.blue), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+                } else {
+                    content
+                        .background(
+                            LinearGradient(
+                                colors: [Color.blue, Color.blue.opacity(0.88)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            in: RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                .strokeBorder(.white.opacity(0.18), lineWidth: 0.8)
+                        }
+                        .shadow(color: .blue.opacity(0.22), radius: 18, y: 8)
+                }
+            case .assistant, .system:
+                if #available(iOS 26.0, *) {
+                    content
+                        .background(.clear)
+                        .glassEffect(in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+                } else {
+                    content
+                        .background(
+                            .ultraThinMaterial,
+                            in: RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                .strokeBorder(.white.opacity(0.22), lineWidth: 0.8)
+                        }
+                        .shadow(color: .black.opacity(0.06), radius: 20, y: 8)
+                }
             }
-        case .assistant, .system:
-            if #available(iOS 26.0, *) {
-                content
-                    .background(Color.clear)
-                    .glassEffect(in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-            } else {
-                content
-                    .background(
-                        .ultraThinMaterial,
-                        in: RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    )
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 28, style: .continuous)
-                            .strokeBorder(.white.opacity(0.22), lineWidth: 0.8)
-                    }
-                    .shadow(color: .black.opacity(0.06), radius: 20, y: 8)
-            }
-        }
         }
     }
 }

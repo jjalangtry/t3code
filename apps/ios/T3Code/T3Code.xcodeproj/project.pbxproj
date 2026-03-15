@@ -27,6 +27,7 @@
 		BCC28E4D2F60197700B38694 /* T3Code.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = T3Code.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BCC28E5A2F60197800B38694 /* T3CodeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = T3CodeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		BCC28E642F60197800B38694 /* T3CodeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = T3CodeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		BCD418AD2F64E49A00009B2C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -79,6 +80,7 @@
 				BCC28E5D2F60197800B38694 /* T3CodeTests */,
 				BCC28E672F60197800B38694 /* T3CodeUITests */,
 				BCC28E4E2F60197700B38694 /* Products */,
+				BCD418AD2F64E49A00009B2C /* Info.plist */,
 			);
 			sourceTree = "<group>";
 		};
@@ -400,6 +402,7 @@
 				DEVELOPMENT_TEAM = 5JZV7V6Y4Z;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -431,6 +434,7 @@
 				DEVELOPMENT_TEAM = 5JZV7V6Y4Z;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

@@ -1,4 +1,7 @@
+import AVFoundation
+import Combine
 import PhotosUI
+import Speech
 import SwiftUI
 
 // MARK: - Composer Text Field
@@ -11,8 +14,8 @@ struct ComposerTextField: View {
     let onSend: () -> Void
     let onStop: () -> Void
 
-    @State private var isDictating = false
     @FocusState private var isTextFieldFocused: Bool
+    @StateObject private var speechRecognizer = SpeechRecognizer()
 
     private var showSendButton: Bool {
         canSend || isRunning
@@ -53,16 +56,13 @@ struct ComposerTextField: View {
                 .transition(.scale.combined(with: .opacity))
             } else {
                 Button {
-                    isDictating.toggle()
-                    if isDictating {
-                        isTextFieldFocused = true
-                    }
+                    toggleDictation()
                 } label: {
-                    Image(systemName: isDictating ? "mic.circle.fill" : "mic.fill")
-                        .font(.system(size: isDictating ? 28 : 18, weight: .medium))
-                        .foregroundStyle(isDictating ? Color.accentColor : Color.secondary)
+                    Image(systemName: speechRecognizer.isRecording ? "mic.circle.fill" : "mic.fill")
+                        .font(.system(size: speechRecognizer.isRecording ? 28 : 18, weight: .medium))
+                        .foregroundStyle(speechRecognizer.isRecording ? Color.accentColor : Color.secondary)
                         .frame(width: 32, height: 32)
-                        .symbolEffect(.pulse, isActive: isDictating)
+                        .symbolEffect(.pulse, isActive: speechRecognizer.isRecording)
                 }
                 .buttonStyle(.plain)
                 .padding(.bottom, 6)
@@ -74,7 +74,137 @@ struct ComposerTextField: View {
         .frame(minHeight: 44)
         .modifier(ComposerFieldModifier())
         .animation(.snappy(duration: 0.2), value: showSendButton)
-        .animation(.snappy(duration: 0.2), value: isDictating)
+        .animation(.snappy(duration: 0.2), value: speechRecognizer.isRecording)
+        .onChange(of: speechRecognizer.transcribedText) { _, newText in
+            if !newText.isEmpty {
+                text = newText
+            }
+        }
+    }
+
+    private func toggleDictation() {
+        if speechRecognizer.isRecording {
+            speechRecognizer.stopRecording()
+        } else {
+            speechRecognizer.startRecording()
+        }
+    }
+}
+
+// MARK: - Speech Recognizer
+
+@MainActor
+final class SpeechRecognizer: ObservableObject {
+    @Published var transcribedText = ""
+    @Published var isRecording = false
+    @Published var errorMessage: String?
+
+    private var audioEngine: AVAudioEngine?
+    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
+    private var recognitionTask: SFSpeechRecognitionTask?
+    private let speechRecognizer = SFSpeechRecognizer(locale: Locale.current)
+
+    func startRecording() {
+        Task { @MainActor in
+            let micAuthorized = await requestMicrophonePermission()
+            guard micAuthorized else {
+                errorMessage = "Microphone access not authorized"
+                return
+            }
+
+            let speechAuthorized = await requestSpeechAuthorization()
+            guard speechAuthorized else {
+                errorMessage = "Speech recognition not authorized"
+                return
+            }
+
+            beginRecordingSession()
+        }
+    }
+
+    private func requestMicrophonePermission() async -> Bool {
+        await withCheckedContinuation { continuation in
+            if #available(iOS 17.0, *) {
+                AVAudioApplication.requestRecordPermission { granted in
+                    continuation.resume(returning: granted)
+                }
+            } else {
+                AVAudioSession.sharedInstance().requestRecordPermission { granted in
+                    continuation.resume(returning: granted)
+                }
+            }
+        }
+    }
+
+    private func requestSpeechAuthorization() async -> Bool {
+        await withCheckedContinuation { continuation in
+            SFSpeechRecognizer.requestAuthorization { status in
+                continuation.resume(returning: status == .authorized)
+            }
+        }
+    }
+
+    private func beginRecordingSession() {
+        // Cancel any existing task
+        recognitionTask?.cancel()
+        recognitionTask = nil
+
+        // Configure audio session
+        let audioSession = AVAudioSession.sharedInstance()
+        do {
+            try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
+            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+        } catch {
+            errorMessage = "Failed to configure audio session"
+            return
+        }
+
+        audioEngine = AVAudioEngine()
+        guard let audioEngine = audioEngine else { return }
+
+        recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
+        guard let recognitionRequest = recognitionRequest else { return }
+
+        recognitionRequest.shouldReportPartialResults = true
+
+        let inputNode = audioEngine.inputNode
+        let recordingFormat = inputNode.outputFormat(forBus: 0)
+
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
+            self?.recognitionRequest?.append(buffer)
+        }
+
+        recognitionTask = speechRecognizer?.recognitionTask(with: recognitionRequest) { [weak self] result, error in
+            Task { @MainActor in
+                if let result = result {
+                    self?.transcribedText = result.bestTranscription.formattedString
+                }
+                if error != nil || result?.isFinal == true {
+                    self?.stopRecording()
+                }
+            }
+        }
+
+        do {
+            audioEngine.prepare()
+            try audioEngine.start()
+            isRecording = true
+        } catch {
+            errorMessage = "Failed to start audio engine"
+            stopRecording()
+        }
+    }
+
+    func stopRecording() {
+        audioEngine?.stop()
+        audioEngine?.inputNode.removeTap(onBus: 0)
+        recognitionRequest?.endAudio()
+        recognitionTask?.cancel()
+
+        audioEngine = nil
+        recognitionRequest = nil
+        recognitionTask = nil
+        isRecording = false
     }
 }
 
@@ -129,29 +259,29 @@ struct ComposerMenuPopoverView: View {
             Divider()
 
             actionSection("Conversation") {
-                Button { onInteractionModeChange(.default) } label: {
-                    actionRow("Chat Mode", systemImage: "message", detail: thread?.interactionMode != .plan ? "Current" : nil)
-                }
-                .buttonStyle(.plain)
-
-                Button { onInteractionModeChange(.plan) } label: {
-                    actionRow("Plan Mode", systemImage: "list.bullet.clipboard", detail: thread?.interactionMode == .plan ? "Current" : nil)
-                }
-                .buttonStyle(.plain)
+                toggleRow(
+                    "Plan Mode",
+                    systemImage: "list.bullet.clipboard",
+                    detail: "Chat when off",
+                    isOn: Binding(
+                        get: { thread?.interactionMode == .plan },
+                        set: { isOn in onInteractionModeChange(isOn ? .plan : .default) }
+                    )
+                )
             }
 
             Divider()
 
             actionSection("Execution") {
-                Button { onRuntimeModeChange(.approvalRequired) } label: {
-                    actionRow("Supervised", systemImage: "lock", detail: thread?.runtimeMode == .approvalRequired ? "Current" : nil)
-                }
-                .buttonStyle(.plain)
-
-                Button { onRuntimeModeChange(.fullAccess) } label: {
-                    actionRow("Full Access", systemImage: "lock.open", detail: thread?.runtimeMode == .fullAccess ? "Current" : nil)
-                }
-                .buttonStyle(.plain)
+                toggleRow(
+                    "Full Access",
+                    systemImage: "lock.open",
+                    detail: "Supervised when off",
+                    isOn: Binding(
+                        get: { thread?.runtimeMode == .fullAccess },
+                        set: { isOn in onRuntimeModeChange(isOn ? .fullAccess : .approvalRequired) }
+                    )
+                )
             }
         }
         .padding(18)
@@ -185,6 +315,34 @@ struct ComposerMenuPopoverView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 11)
+        .background(.white.opacity(0.001), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func toggleRow(
+        _ title: String,
+        systemImage: String,
+        detail: String?,
+        isOn: Binding<Bool>
+    ) -> some View {
+        Toggle(isOn: isOn) {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .frame(width: 18)
+                    .foregroundStyle(.primary)
+                Text(title)
+                Spacer()
+                if let detail {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .toggleStyle(.switch)
+        .tint(.accentColor)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
         .background(.white.opacity(0.001), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
@@ -236,6 +394,63 @@ struct InlineErrorBanner: View {
         .foregroundStyle(.red)
         .padding(.horizontal)
         .padding(.vertical, 6)
+    }
+}
+
+// MARK: - Glass Error Banner (for floating overlay)
+
+struct GlassErrorBanner: View {
+    let systemImage: String
+    let message: String
+    let dismissAction: (() -> Void)?
+
+    init(systemImage: String, message: String, dismissAction: (() -> Void)?) {
+        self.systemImage = systemImage
+        self.message = message
+        self.dismissAction = dismissAction
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .foregroundStyle(.red)
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+            Spacer()
+            if let dismissAction {
+                Button(action: dismissAction) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .modifier(GlassErrorBannerModifier())
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+    }
+}
+
+private struct GlassErrorBannerModifier: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content
+                .background(.clear)
+                .glassEffect(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        } else {
+            content
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(.red.opacity(0.3), lineWidth: 0.8)
+                }
+        }
     }
 }
 
@@ -313,4 +528,22 @@ struct InlineErrorBanner: View {
         )
     }
     .background(Color(.systemBackground))
+}
+
+#Preview("Glass Error Banner") {
+    VStack(spacing: 12) {
+        GlassErrorBanner(
+            systemImage: "exclamationmark.triangle",
+            message: "Connection interrupted",
+            dismissAction: {}
+        )
+        
+        GlassErrorBanner(
+            systemImage: "exclamationmark.octagon",
+            message: "Session error: The operation timed out",
+            dismissAction: nil
+        )
+    }
+    .padding()
+    .background(Color.black)
 }

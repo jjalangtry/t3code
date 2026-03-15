@@ -5,6 +5,7 @@ import SwiftUI
 enum ThreadSheet: String, Identifiable {
     case terminal
     case git
+    case plans
 
     var id: String { rawValue }
 }
@@ -296,6 +297,7 @@ struct ThreadActionPopoverView: View {
     let thread: OrchestrationThread?
     let onOpenTerminal: () -> Void
     let onOpenGit: () -> Void
+    let onOpenPlans: () -> Void
     let onRuntimeModeChange: (RuntimeMode) -> Void
     let onInteractionModeChange: (InteractionMode) -> Void
     let onStopSession: () -> Void
@@ -316,6 +318,7 @@ struct ThreadActionPopoverView: View {
                 actionButton("Plan Mode", systemImage: "list.bullet.clipboard", detail: thread?.interactionMode == .plan ? "Current" : nil) {
                     onInteractionModeChange(.plan)
                 }
+                actionButton("Plans", systemImage: "doc.text.magnifyingglass", detail: nil, action: onOpenPlans)
             }
 
             Divider()
@@ -376,6 +379,67 @@ struct ThreadActionPopoverView: View {
     }
 }
 
+// MARK: - Plans Sheet View
+
+struct PlansSheetView: View {
+    @Environment(SessionStore.self) private var store
+    let threadId: ThreadId
+
+    private var thread: OrchestrationThread? {
+        store.threads.first { $0.id == threadId }
+    }
+
+    private var plans: [ProposedPlan] {
+        (thread?.proposedPlans ?? []).sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    var body: some View {
+        ScrollView {
+            if plans.isEmpty {
+                ContentUnavailableView(
+                    "No Plans",
+                    systemImage: "doc.text",
+                    description: Text("Plans will appear here when the assistant proposes one.")
+                )
+                .padding(.top, 40)
+            } else {
+                VStack(alignment: .leading, spacing: 16) {
+                    ForEach(plans) { plan in
+                        GlassPanel(cornerRadius: 22) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Plan")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+
+                                Text(plan.planMarkdown)
+                                    .font(.body)
+                                    .textSelection(.enabled)
+
+                                HStack {
+                                    Text(DateFormatting.formatTime(plan.updatedAt))
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
+                                    Spacer()
+                                    Button {
+                                        UIPasteboard.general.string = plan.planMarkdown
+                                    } label: {
+                                        Label("Copy", systemImage: "doc.on.doc")
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(14)
+                        }
+                    }
+                }
+                .padding(16)
+            }
+        }
+        .navigationTitle("Plans")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
 // MARK: - Previews
 
 #Preview("Terminal Sheet") {
@@ -397,6 +461,7 @@ struct ThreadActionPopoverView: View {
         thread: nil,
         onOpenTerminal: {},
         onOpenGit: {},
+        onOpenPlans: {},
         onRuntimeModeChange: { _ in },
         onInteractionModeChange: { _ in },
         onStopSession: {}

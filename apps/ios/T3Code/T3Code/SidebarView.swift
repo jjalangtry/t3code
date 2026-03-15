@@ -7,10 +7,6 @@ struct SidebarView: View {
     @State private var selectedProjectId: ProjectId?
     @State private var newProjectTitle = ""
     @State private var newProjectPath = ""
-    @State private var newThreadTitle = ""
-    @State private var newThreadModel = "o4-mini"
-    @State private var newThreadRuntimeMode: RuntimeMode = .fullAccess
-    @State private var newThreadInteractionMode: InteractionMode = .default
     @State private var isSubmitting = false
     @State private var sidebarError: String?
 
@@ -95,11 +91,9 @@ struct SidebarView: View {
                 switch sheet {
                 case .newProject:
                     newProjectSheet
-                case .newThread:
-                    newThreadSheet
                 }
             }
-            .presentationDetents(sheet == .newProject ? [.medium, .large] : [.medium])
+            .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
         .alert(
@@ -176,66 +170,6 @@ struct SidebarView: View {
         }
     }
 
-    private var newThreadSheet: some View {
-        Form {
-            Section("Thread") {
-                Picker("Project", selection: Binding(
-                    get: { selectedProjectId ?? store.activeProjects.first?.id ?? "" },
-                    set: { selectedProjectId = $0 }
-                )) {
-                    ForEach(store.activeProjects) { project in
-                        Text(project.title).tag(project.id)
-                    }
-                }
-
-                TextField("Thread title", text: $newThreadTitle)
-                TextField("Model", text: $newThreadModel)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-            }
-
-            Section("Mode") {
-                Picker("Conversation", selection: $newThreadInteractionMode) {
-                    Text("Chat").tag(InteractionMode.default)
-                    Text("Plan").tag(InteractionMode.plan)
-                }
-                .pickerStyle(.segmented)
-
-                Picker("Execution", selection: $newThreadRuntimeMode) {
-                    Text("Supervised").tag(RuntimeMode.approvalRequired)
-                    Text("Full Access").tag(RuntimeMode.fullAccess)
-                }
-                .pickerStyle(.segmented)
-            }
-        }
-        .navigationTitle("New Thread")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button("Cancel") {
-                    dismissSidebarSheet()
-                }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    submitNewThread()
-                } label: {
-                    if isSubmitting {
-                        ProgressView()
-                    } else {
-                        Image(systemName: "checkmark")
-                    }
-                }
-                .disabled(
-                    isSubmitting
-                        || (selectedProjectId ?? "").isEmpty
-                        || newThreadTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || newThreadModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                )
-            }
-        }
-    }
-
     private func beginNewProject() {
         newProjectTitle = ""
         newProjectPath = store.welcome?.cwd ?? ""
@@ -247,12 +181,22 @@ struct SidebarView: View {
         guard let projectId else { return }
         let project = store.activeProjects.first { $0.id == projectId }
         selectedProjectId = projectId
-        newThreadTitle = ""
-        newThreadModel = project?.defaultModel ?? "o4-mini"
-        newThreadRuntimeMode = .fullAccess
-        newThreadInteractionMode = .default
-        isSubmitting = false
-        sidebarSheet = .newThread
+        let defaultModel = project?.defaultModel ?? "o4-mini"
+
+        Task {
+            do {
+                let threadId = try await store.createThread(
+                    projectId: projectId,
+                    title: "New thread",
+                    model: defaultModel,
+                    runtimeMode: .fullAccess,
+                    interactionMode: .default
+                )
+                store.selectedThreadId = threadId
+            } catch {
+                sidebarError = error.localizedDescription
+            }
+        }
     }
 
     private func dismissSidebarSheet() {
@@ -271,39 +215,7 @@ struct SidebarView: View {
                     workspaceRoot: path,
                     title: newProjectTitle
                 )
-                let threadId = try await store.createThread(
-                    projectId: projectId,
-                    title: "New thread",
-                    model: "o4-mini",
-                    runtimeMode: .fullAccess,
-                    interactionMode: .default
-                )
-                store.selectedThreadId = threadId
                 selectedProjectId = projectId
-                dismissSidebarSheet()
-            } catch {
-                isSubmitting = false
-                sidebarError = error.localizedDescription
-            }
-        }
-    }
-
-    private func submitNewThread() {
-        let title = newThreadTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let model = newThreadModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let projectId = selectedProjectId, !title.isEmpty, !model.isEmpty else { return }
-
-        isSubmitting = true
-        Task {
-            do {
-                let threadId = try await store.createThread(
-                    projectId: projectId,
-                    title: title,
-                    model: model,
-                    runtimeMode: newThreadRuntimeMode,
-                    interactionMode: newThreadInteractionMode
-                )
-                store.selectedThreadId = threadId
                 dismissSidebarSheet()
             } catch {
                 isSubmitting = false
@@ -315,7 +227,6 @@ struct SidebarView: View {
 
 private enum SidebarSheet: String, Identifiable {
     case newProject
-    case newThread
 
     var id: String { rawValue }
 }

@@ -44,94 +44,79 @@ struct ThreadView: View {
         ZStack {
             chatBackground
 
-            VStack(spacing: 0) {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 12) {
-                            ForEach(timelineItems) { item in
-                                switch item {
-                                case .message(let message):
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        ForEach(timelineItems) { item in
+                            switch item {
+                            case .message(let message):
+                                MessageBubble(
+                                    message: message,
+                                    overrideText: store.streamingMessageId == message.id ? store.streamingText : nil
+                                )
+                                .contextMenu {
+                                    Button {
+                                        copyMessage(message)
+                                    } label: {
+                                        Label("Copy", systemImage: "doc.on.doc")
+                                    }
+
+                                    Menu("Thread") {
+                                        Button {
+                                            copyThread()
+                                        } label: {
+                                            Label("Copy Thread", systemImage: "text.justify")
+                                        }
+
+                                        if let turnCount = revertTurnCount(for: message) {
+                                            Button(role: .destructive) {
+                                                requestRevert(for: message, turnCount: turnCount)
+                                            } label: {
+                                                Label("Revert to Here", systemImage: "arrow.uturn.backward")
+                                            }
+                                        }
+                                    }
+                                } preview: {
                                     MessageBubble(
                                         message: message,
                                         overrideText: store.streamingMessageId == message.id ? store.streamingText : nil
                                     )
-                                    .contextMenu {
-                                        Button {
-                                            copyMessage(message)
-                                        } label: {
-                                            Label("Copy", systemImage: "doc.on.doc")
-                                        }
-
-                                        Menu("Thread") {
-                                            Button {
-                                                copyThread()
-                                            } label: {
-                                                Label("Copy Thread", systemImage: "text.justify")
-                                            }
-
-                                            if let turnCount = revertTurnCount(for: message) {
-                                                Button(role: .destructive) {
-                                                    requestRevert(for: message, turnCount: turnCount)
-                                                } label: {
-                                                    Label("Revert to Here", systemImage: "arrow.uturn.backward")
-                                                }
-                                            }
-                                        }
-                                    } preview: {
-                                        MessageBubble(
-                                            message: message,
-                                            overrideText: store.streamingMessageId == message.id ? store.streamingText : nil
-                                        )
-                                        .padding()
-                                    }
-                                    .id(item.id)
-                                case .activity(let activity):
-                                    ActivityTimelineRow(activity: activity)
-                                        .id(item.id)
+                                    .padding()
                                 }
+                                .id(item.id)
+                            case .activity(let activity):
+                                ActivityTimelineRow(activity: activity)
+                                    .id(item.id)
                             }
-                            Color.clear
-                                .frame(height: 1)
-                                .id(bottomAnchorId)
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.top, 12)
-                        .padding(.bottom, 20)
+                        Color.clear
+                            .frame(height: 1)
+                            .id(bottomAnchorId)
                     }
-                    .scrollIndicators(.hidden)
-                    .defaultScrollAnchor(.bottom)
-                    .onAppear {
-                        scrollToBottom(proxy, animated: false)
-                    }
-                    .onChange(of: timelineItems.last?.id) { _, _ in
-                        scrollToBottom(proxy, animated: true)
-                    }
-                    .onChange(of: store.streamingText) { _, _ in
-                        scrollToBottom(proxy, animated: false)
-                    }
-                    .onChange(of: threadId) { _, _ in
-                        scrollToBottom(proxy, animated: false)
-                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 12)
+                    .padding(.bottom, composerBottomPadding)
                 }
-
-                if let errorMessage {
-                    InlineErrorBanner(
-                        systemImage: "exclamationmark.triangle",
-                        message: errorMessage
-                    ) {
-                        self.errorMessage = nil
-                    }
+                .scrollIndicators(.hidden)
+                .defaultScrollAnchor(.bottom)
+                .onAppear {
+                    scrollToBottom(proxy, animated: false)
                 }
-
-                if let sessionError = thread?.session?.lastError {
-                    InlineErrorBanner(
-                        systemImage: "exclamationmark.octagon",
-                        message: sessionError,
-                        dismissAction: nil
-                    )
+                .onChange(of: timelineItems.last?.id) { _, _ in
+                    scrollToBottom(proxy, animated: true)
                 }
+                .onChange(of: store.streamingText) { _, _ in
+                    scrollToBottom(proxy, animated: false)
+                }
+                .onChange(of: threadId) { _, _ in
+                    scrollToBottom(proxy, animated: false)
+                }
+            }
 
-                composerBar
+            // Floating composer bar overlay - messages scroll behind this
+            VStack {
+                Spacer()
+                floatingComposerOverlay
             }
         }
         .navigationTitle(thread?.title ?? "Thread")
@@ -145,7 +130,6 @@ struct ThreadView: View {
                         Image(systemName: "ellipsis")
                             .font(.system(size: 20, weight: .semibold))
                             .frame(width: 40, height: 40)
-                            .modifier(GlassCircleModifier(tint: nil, isInteractive: true))
                         Circle()
                             .fill(statusColor)
                             .frame(width: 7, height: 7)
@@ -153,6 +137,7 @@ struct ThreadView: View {
                     }
                 }
                 .buttonStyle(.plain)
+                .modifier(GlassCircleModifier(tint: nil, isInteractive: true))
                 .accessibilityLabel("Thread actions")
                 .popover(isPresented: $showThreadActionsPopover, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
                     ThreadActionPopoverView(
@@ -164,6 +149,10 @@ struct ThreadView: View {
                         onOpenGit: {
                             showThreadActionsPopover = false
                             presentedSheet = .git
+                        },
+                        onOpenPlans: {
+                            showThreadActionsPopover = false
+                            presentedSheet = .plans
                         },
                         onRuntimeModeChange: applyRuntimeMode,
                         onInteractionModeChange: applyInteractionMode,
@@ -196,6 +185,8 @@ struct ThreadView: View {
                     TerminalSheetView(threadId: threadId)
                 case .git:
                     GitSheetView(threadId: threadId)
+                case .plans:
+                    PlansSheetView(threadId: threadId)
                 }
             }
             .presentationDetents([.large])
@@ -220,8 +211,37 @@ struct ThreadView: View {
         }
     }
 
-    private var composerBar: some View {
-        VStack(spacing: 10) {
+    // Padding for scroll content to account for floating composer
+    private var composerBottomPadding: CGFloat {
+        var height: CGFloat = 100 // Base composer height
+        if errorMessage != nil { height += 40 }
+        if thread?.session?.lastError != nil { height += 40 }
+        if !selectedAttachments.isEmpty { height += 50 }
+        return height
+    }
+
+    @ViewBuilder
+    private var floatingComposerOverlay: some View {
+        VStack(spacing: 0) {
+            // Error banners with glass effect
+            if let errorMessage {
+                GlassErrorBanner(
+                    systemImage: "exclamationmark.triangle",
+                    message: errorMessage
+                ) {
+                    self.errorMessage = nil
+                }
+            }
+
+            if let sessionError = thread?.session?.lastError {
+                GlassErrorBanner(
+                    systemImage: "exclamationmark.octagon",
+                    message: sessionError,
+                    dismissAction: nil
+                )
+            }
+
+            // Attachments row
             if !selectedAttachments.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -244,10 +264,12 @@ struct ThreadView: View {
                             }
                         }
                     }
-                    .padding(.horizontal)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
                 }
             }
 
+            // Composer bar
             HStack(alignment: .center, spacing: 10) {
                 Button {
                     showComposerMenu.toggle()
@@ -259,7 +281,7 @@ struct ThreadView: View {
                 }
                 .buttonStyle(.plain)
                 .modifier(GlassCircleModifier(tint: nil, isInteractive: true))
-                .popover(isPresented: $showComposerMenu, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
+                .popover(isPresented: $showComposerMenu, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
                     ComposerMenuPopoverView(
                         thread: thread,
                         selectedPhotoItems: $selectedPhotoItems,
@@ -284,7 +306,7 @@ struct ThreadView: View {
             }
             .padding(.horizontal, 12)
             .padding(.top, 8)
-            .padding(.bottom, 16)
+            .padding(.bottom, 6)
         }
     }
 
@@ -317,30 +339,8 @@ struct ThreadView: View {
     }
 
     private var chatBackground: some View {
-        LinearGradient(
-            colors: [
-                Color(.systemBackground),
-                Color(.secondarySystemBackground).opacity(0.96),
-                Color.cyan.opacity(0.08),
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .overlay(alignment: .topTrailing) {
-            Circle()
-                .fill(Color.blue.opacity(0.12))
-                .frame(width: 220, height: 220)
-                .blur(radius: 30)
-                .offset(x: 80, y: -40)
-        }
-        .overlay(alignment: .bottomLeading) {
-            Circle()
-                .fill(Color.white.opacity(0.18))
-                .frame(width: 180, height: 180)
-                .blur(radius: 26)
-                .offset(x: -50, y: 60)
-        }
-        .ignoresSafeArea()
+        Color.black
+            .ignoresSafeArea()
     }
 
     private func copyMessage(_ message: OrchestrationMessage) {
