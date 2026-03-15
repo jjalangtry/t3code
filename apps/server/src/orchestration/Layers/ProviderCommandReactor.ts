@@ -105,6 +105,18 @@ function isTemporaryWorktreeBranch(branch: string): boolean {
   return TEMP_WORKTREE_BRANCH_PATTERN.test(branch.trim().toLowerCase());
 }
 
+function normalizeInteractiveCapabilityFailureDetail(cause: Cause.Cause<ProviderServiceError>): string {
+  const pretty = Cause.pretty(cause);
+  const normalized = pretty.toLowerCase();
+  if (
+    normalized.includes("approval response is not available") ||
+    normalized.includes("structured user-input response is not available")
+  ) {
+    return "This provider does not support interactive approvals or structured user-input responses in the current CLI mode. Switch runtime mode to full-access to continue.";
+  }
+  return pretty;
+}
+
 function buildGeneratedWorktreeBranchName(raw: string): string {
   const normalized = raw
     .trim()
@@ -626,7 +638,7 @@ const make = Effect.gen(function* () {
               threadId: event.payload.threadId,
               kind: "provider.approval.respond.failed",
               summary: "Provider approval response failed",
-              detail: Cause.pretty(cause),
+              detail: normalizeInteractiveCapabilityFailureDetail(cause),
               turnId: null,
               createdAt: event.payload.createdAt,
               requestId: event.payload.requestId,
@@ -670,7 +682,7 @@ const make = Effect.gen(function* () {
             threadId: event.payload.threadId,
             kind: "provider.user-input.respond.failed",
             summary: "Provider user input response failed",
-            detail: Cause.pretty(cause),
+            detail: normalizeInteractiveCapabilityFailureDetail(cause),
             turnId: null,
             createdAt: event.payload.createdAt,
             requestId: event.payload.requestId,

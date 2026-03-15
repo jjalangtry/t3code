@@ -40,6 +40,41 @@ struct ThreadView: View {
         return (hasText || !selectedAttachments.isEmpty) && !isSending
     }
 
+    private var pendingApprovals: [PendingApprovalPrompt] {
+        guard let thread else { return [] }
+        var openById: [String: PendingApprovalPrompt] = [:]
+        let ordered = thread.activities.sorted { lhs, rhs in
+            if let leftSequence = lhs.sequence, let rightSequence = rhs.sequence, leftSequence != rightSequence {
+                return leftSequence < rightSequence
+            }
+            if lhs.createdAt != rhs.createdAt {
+                return lhs.createdAt < rhs.createdAt
+            }
+            return lhs.id < rhs.id
+        }
+        for activity in ordered {
+            guard let payload = activity.payload else { continue }
+            let requestId = payload["requestId"]?.stringValue
+            if activity.kind == "approval.requested",
+               let requestId,
+               let requestKind = approvalKind(from: payload) {
+                openById[requestId] = PendingApprovalPrompt(
+                    requestId: requestId,
+                    requestKind: requestKind,
+                    detail: payload["detail"]?.stringValue,
+                    createdAt: activity.createdAt
+                )
+            } else if activity.kind == "approval.resolved", let requestId {
+                openById.removeValue(forKey: requestId)
+            }
+        }
+        return openById.values.sorted { $0.createdAt < $1.createdAt }
+    }
+
+    private var activePendingApproval: PendingApprovalPrompt? {
+        pendingApprovals.first
+    }
+
     var body: some View {
         ZStack {
             chatBackground
@@ -224,6 +259,16 @@ struct ThreadView: View {
     private var floatingComposerOverlay: some View {
         VStack(spacing: 0) {
             // Error banners with glass effect
+            if let pendingApproval = activePendingApproval {
+                ApprovalBanner(
+                    approval: pendingApproval,
+                    pendingCount: pendingApprovals.count,
+                    onDecision: respondToApproval
+                )
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
+            }
+
             if let errorMessage {
                 GlassErrorBanner(
                     systemImage: "exclamationmark.triangle",
@@ -436,6 +481,45 @@ struct ThreadView: View {
         }
     }
 
+    private func approvalKind(from payload: JSONValue) -> PendingApprovalPrompt.RequestKind? {
+        if let requestKind = payload["requestKind"]?.stringValue {
+            switch requestKind {
+            case "command":
+                return .command
+            case "file-read":
+                return .fileRead
+            case "file-change":
+                return .fileChange
+            default:
+                break
+            }
+        }
+        switch payload["requestType"]?.stringValue {
+        case "command_execution_approval", "exec_command_approval":
+            return .command
+        case "file_read_approval":
+            return .fileRead
+        case "file_change_approval", "apply_patch_approval":
+            return .fileChange
+        default:
+            return nil
+        }
+    }
+
+    private func respondToApproval(_ requestId: ApprovalRequestId, _ decision: String) {
+        Task {
+            do {
+                try await store.respondToApproval(
+                    threadId: threadId,
+                    requestId: requestId,
+                    decision: decision
+                )
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
     private func applyRuntimeMode(_ runtimeMode: RuntimeMode) {
         guard thread?.runtimeMode != runtimeMode else { return }
         Task {
@@ -589,6 +673,61 @@ private struct PendingRevertTarget: Identifiable {
     let label: String
 
     var id: Int { turnCount }
+}
+
+private struct PendingApprovalPrompt: Identifiable {
+    enum RequestKind: String {
+        case command = "Command approval requested"
+        case fileRead = "File-read approval requested"
+        case fileChange = "File-change approval requested"
+    }
+
+    let requestId: ApprovalRequestId
+    let requestKind: RequestKind
+    let detail: String?
+    let createdAt: String
+
+    var id: String { requestId }
+}
+
+private struct ApprovalBanner: View {
+    let approval: PendingApprovalPrompt
+    let pendingCount: Int
+    let onDecision: (ApprovalRequestId, String) -> Void
+
+    var body: some View {
+        GlassPanel(cornerRadius: 22) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Text("PENDING APPROVAL")
+                        .font(.caption.weight(.semibold))
+                    Text(approval.requestKind.rawValue)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if pendingCount > 1 {
+                        Text("1/\(pendingCount)")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                if let detail = approval.detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                HStack(spacing: 8) {
+                    Button("Cancel") { onDecision(approval.requestId, "cancel") }
+                    Button("Decline") { onDecision(approval.requestId, "decline") }
+                    Button("Always Allow") { onDecision(approval.requestId, "acceptForSession") }
+                    Button("Approve Once") { onDecision(approval.requestId, "accept") }
+                }
+                .buttonStyle(.bordered)
+                .font(.caption)
+            }
+            .padding(12)
+        }
+    }
 }
 
 // MARK: - Previews

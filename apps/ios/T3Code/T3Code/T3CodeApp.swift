@@ -8,6 +8,9 @@ struct T3CodeApp: App {
         WindowGroup {
             ContentView()
                 .environment(store)
+                .onOpenURL { url in
+                    store.handleDeepLink(url)
+                }
         }
     }
 }

@@ -181,7 +181,7 @@ struct SidebarView: View {
         guard let projectId else { return }
         let project = store.activeProjects.first { $0.id == projectId }
         selectedProjectId = projectId
-        let defaultModel = project?.defaultModel ?? "o4-mini"
+        let defaultModel = project?.defaultModel ?? store.preferredDefaultModel
 
         Task {
             do {

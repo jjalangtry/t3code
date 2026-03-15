@@ -30,6 +30,8 @@ final class SessionStore {
     var terminalSessions: [ThreadId: TerminalSessionSnapshot] = [:]
     var terminalActivity: [ThreadId: Bool] = [:]
     var terminalErrors: [ThreadId: String] = [:]
+    var preferredDefaultModel: String = "o4-mini"
+    var themePreference: AppThemePreference = .system
 
     private var transport: WebSocketTransport?
     private var api: T3CodeAPI?
@@ -42,11 +44,14 @@ final class SessionStore {
     private var connectionAttemptID = 0
 
     private let authClient = AppAuthClient()
+    private let snapshotCacheStore = SnapshotCacheStore()
 
     private static let hostKey = "t3code_server_host_input"
     private static let modeKey = "t3code_connection_mode"
     private static let portKey = "t3code_advanced_port_override"
     private static let usernameKey = "t3code_auth_username"
+    private static let preferredModelKey = "t3code_preferred_default_model"
+    private static let themePreferenceKey = "t3code_theme_preference"
     private static let secureStoreService = "jjalangtry.T3Code"
     private static let authTokenAccount = "authToken"
     private static let appAuthSessionTokenAccount = "appAuthSessionToken"
@@ -116,12 +121,17 @@ final class SessionStore {
         serverHostInput = UserDefaults.standard.string(forKey: Self.hostKey) ?? ""
         advancedPortOverride = UserDefaults.standard.string(forKey: Self.portKey) ?? ""
         authUsername = UserDefaults.standard.string(forKey: Self.usernameKey) ?? ""
+        preferredDefaultModel = UserDefaults.standard.string(forKey: Self.preferredModelKey) ?? "o4-mini"
 
         if let rawMode = UserDefaults.standard.string(forKey: Self.modeKey),
            let decodedMode = ConnectionMode(rawValue: rawMode) {
             connectionMode = decodedMode
         } else {
             connectionMode = .appAuth
+        }
+        if let rawTheme = UserDefaults.standard.string(forKey: Self.themePreferenceKey),
+           let parsedTheme = AppThemePreference(rawValue: rawTheme) {
+            themePreference = parsedTheme
         }
 
         authToken =
@@ -199,8 +209,17 @@ final class SessionStore {
         let oldTransport = transport
         transport = nil
         api = nil
+        let authOrigin = (try? EndpointResolver.resolve(
+            hostInput: serverHostInput,
+            portOverride: advancedPortOverride
+        ))?.httpOrigin
+        let sessionToken = appAuthSessionToken
         Task {
             await oldTransport?.disconnect()
+            if let authOrigin,
+               !sessionToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                _ = try? await authClient.logout(origin: authOrigin, sessionToken: sessionToken)
+            }
         }
 
         connectionError = nil
@@ -248,7 +267,11 @@ final class SessionStore {
 
     func createThread(projectId: ProjectId, title: String, model: String) async throws -> ThreadId {
         guard let api else { throw TransportError.notConnected }
-        return try await api.createThread(projectId: projectId, title: title, model: model)
+        return try await api.createThread(
+            projectId: projectId,
+            title: title,
+            model: model.isEmpty ? preferredDefaultModel : model
+        )
     }
 
     func createThread(
@@ -277,8 +300,19 @@ final class SessionStore {
             title: title?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                 ? title!.trimmingCharacters(in: .whitespacesAndNewlines)
                 : fallbackTitle,
-            defaultModel: "o4-mini"
+            defaultModel: preferredDefaultModel
         )
+    }
+
+    func updatePreferredModel(_ model: String) {
+        let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        preferredDefaultModel = trimmed.isEmpty ? "o4-mini" : trimmed
+        UserDefaults.standard.set(preferredDefaultModel, forKey: Self.preferredModelKey)
+    }
+
+    func updateThemePreference(_ preference: AppThemePreference) {
+        themePreference = preference
+        UserDefaults.standard.set(preference.rawValue, forKey: Self.themePreferenceKey)
     }
 
     func deleteThread(threadId: ThreadId) async throws {
@@ -344,6 +378,28 @@ final class SessionStore {
             commitMessage: commitMessage,
             featureBranch: featureBranch
         )
+    }
+
+    func fetchInlineDiff(threadId: ThreadId, filePath: String) async throws -> String {
+        guard let api else { throw TransportError.notConnected }
+        guard let thread = threads.first(where: { $0.id == threadId }) else {
+            throw TransportError.serverError("Thread unavailable.")
+        }
+        let matchingCheckpoint = thread.checkpoints
+            .sorted { $0.checkpointTurnCount > $1.checkpointTurnCount }
+            .first { checkpoint in
+                checkpoint.files.contains { $0.path == filePath }
+            }
+        guard let checkpoint = matchingCheckpoint else {
+            throw TransportError.serverError("No checkpoint diff found for this file yet.")
+        }
+        let fromTurn = max(0, checkpoint.checkpointTurnCount - 1)
+        let result = try await api.getTurnDiff(
+            threadId: threadId,
+            fromTurnCount: fromTurn,
+            toTurnCount: checkpoint.checkpointTurnCount
+        )
+        return result.diff
     }
 
     func openTerminal(threadId: ThreadId) async throws {
@@ -549,6 +605,10 @@ final class SessionStore {
             try await transport.connect()
             guard isCurrentAttempt(attemptID), self.api === api else { return }
 
+            if let cachedSnapshot = snapshotCacheStore.load() {
+                applySnapshot(cachedSnapshot)
+            }
+
             let snapshot: OrchestrationReadModel = try await api.getSnapshot()
             guard isCurrentAttempt(attemptID), self.api === api else { return }
 
@@ -662,6 +722,7 @@ final class SessionStore {
         projects = snapshot.projects
         threads = snapshot.threads
         snapshotSequence = snapshot.snapshotSequence
+        snapshotCacheStore.save(snapshot)
         reconcileSelectedThread()
         clearCompletedStreamingState(using: snapshot)
     }
@@ -684,6 +745,7 @@ final class SessionStore {
         guard event.sequence > latestSequence else { return }
         latestSequence = event.sequence
 
+        applyIncrementalDomainEvent(event)
         switch event.type {
         case "thread.message-sent":
             if let streaming = event.payload["streaming"]?.boolValue, streaming,
@@ -696,6 +758,10 @@ final class SessionStore {
         }
 
         scheduleSnapshotSync()
+    }
+
+    private func applyIncrementalDomainEvent(_ event: OrchestrationEvent) {
+        threads = ThreadProjectionReducer.apply(event: event, to: threads)
     }
 
     private func reconcileSelectedThread() {
@@ -814,6 +880,18 @@ final class SessionStore {
 
     private func gitCWD(for threadId: ThreadId) throws -> String {
         try terminalCWD(for: threadId)
+    }
+
+    func handleDeepLink(_ url: URL) {
+        guard url.scheme?.lowercased() == "t3code" else { return }
+        let host = url.host?.lowercased()
+        if host == "thread" {
+            let targetId = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            guard !targetId.isEmpty else { return }
+            if threads.contains(where: { $0.id == targetId }) {
+                selectedThreadId = targetId
+            }
+        }
     }
 
     private func handleTerminalEvent(_ event: TerminalEvent) {

@@ -33,6 +33,14 @@ nonisolated final class T3CodeAPI: Sendable {
         ])
     }
 
+    func getTurnDiff(threadId: ThreadId, fromTurnCount: Int, toTurnCount: Int) async throws -> ThreadTurnDiffResult {
+        try await transport.request("orchestration.getTurnDiff", params: [
+            "threadId": threadId,
+            "fromTurnCount": fromTurnCount,
+            "toTurnCount": toTurnCount,
+        ])
+    }
+
     // MARK: - Orchestration commands (convenience)
 
     private func isoNow() -> String {

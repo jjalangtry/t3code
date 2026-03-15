@@ -278,6 +278,84 @@ function runtimeEventToActivities(
       ];
     }
 
+    case "content.delta": {
+      const detail = truncateDetail(event.payload.delta, 400);
+      if (!detail) {
+        return [];
+      }
+      switch (event.payload.streamKind) {
+        case "reasoning_text":
+        case "reasoning_summary_text":
+          return [
+            {
+              id: event.eventId,
+              createdAt: event.createdAt,
+              tone: "info",
+              kind: "reasoning.delta",
+              summary: "Reasoning update",
+              payload: {
+                streamKind: event.payload.streamKind,
+                detail,
+              },
+              turnId: toTurnId(event.turnId) ?? null,
+              ...maybeSequence,
+            },
+          ];
+        case "command_output":
+          return [
+            {
+              id: event.eventId,
+              createdAt: event.createdAt,
+              tone: "tool",
+              kind: "tool.command-output.delta",
+              summary: "Command output",
+              payload: {
+                streamKind: event.payload.streamKind,
+                detail,
+                itemType: "command_execution",
+              },
+              turnId: toTurnId(event.turnId) ?? null,
+              ...maybeSequence,
+            },
+          ];
+        case "file_change_output":
+          return [
+            {
+              id: event.eventId,
+              createdAt: event.createdAt,
+              tone: "tool",
+              kind: "tool.file-change-output.delta",
+              summary: "File change output",
+              payload: {
+                streamKind: event.payload.streamKind,
+                detail,
+                itemType: "file_change",
+              },
+              turnId: toTurnId(event.turnId) ?? null,
+              ...maybeSequence,
+            },
+          ];
+        case "plan_text":
+          return [
+            {
+              id: event.eventId,
+              createdAt: event.createdAt,
+              tone: "info",
+              kind: "plan.delta",
+              summary: "Plan update",
+              payload: {
+                streamKind: event.payload.streamKind,
+                detail,
+              },
+              turnId: toTurnId(event.turnId) ?? null,
+              ...maybeSequence,
+            },
+          ];
+        default:
+          return [];
+      }
+    }
+
     case "turn.plan.updated": {
       return [
         {
@@ -291,6 +369,60 @@ function runtimeEventToActivities(
             ...(event.payload.explanation !== undefined
               ? { explanation: event.payload.explanation }
               : {}),
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "model.rerouted": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "model.rerouted",
+          summary: "Model rerouted",
+          payload: {
+            from: event.payload.fromModel ?? null,
+            to: event.payload.toModel,
+            reason: event.payload.reason ?? null,
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "deprecation.notice": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "deprecation.notice",
+          summary: "Deprecation notice",
+          payload: {
+            message: truncateDetail(event.payload.message),
+            ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "config.warning": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "config.warning",
+          summary: "Configuration warning",
+          payload: {
+            message: truncateDetail(event.payload.message),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,

@@ -130,6 +130,9 @@ struct GitSheetView: View {
     @State private var localError: String?
     @State private var isLoading = false
     @State private var isRunningAction = false
+    @State private var diffPreviewFilePath: String?
+    @State private var diffPreviewText = ""
+    @State private var diffLoading = false
 
     var body: some View {
         Form {
@@ -158,13 +161,19 @@ struct GitSheetView: View {
             if let status, !status.workingTree.files.isEmpty {
                 Section("Files") {
                     ForEach(status.workingTree.files) { file in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(file.path)
-                                .font(.subheadline)
-                            Text("+\(file.insertions)  -\(file.deletions)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                        Button {
+                            openDiff(file.path)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(file.path)
+                                    .font(.subheadline)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Text("+\(file.insertions)  -\(file.deletions)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -227,6 +236,35 @@ struct GitSheetView: View {
         .task {
             await refresh()
         }
+        .sheet(
+            isPresented: Binding(
+                get: { diffPreviewFilePath != nil },
+                set: { if !$0 { diffPreviewFilePath = nil } }
+            )
+        ) {
+            NavigationStack {
+                ScrollView {
+                    if diffLoading {
+                        ProgressView()
+                            .frame(maxWidth: .infinity, minHeight: 180)
+                    } else if diffPreviewText.isEmpty {
+                        ContentUnavailableView(
+                            "Diff Unavailable",
+                            systemImage: "doc.text.magnifyingglass",
+                            description: Text("No inline diff could be loaded for this file yet.")
+                        )
+                    } else {
+                        Text(diffPreviewText)
+                            .font(.system(.footnote, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(16)
+                    }
+                }
+                .navigationTitle(diffPreviewFilePath ?? "Diff")
+                .navigationBarTitleDisplayMode(.inline)
+            }
+        }
     }
 
     private func refresh() async {
@@ -285,6 +323,21 @@ struct GitSheetView: View {
                 )
                 await refresh()
             } catch {
+                localError = error.localizedDescription
+            }
+        }
+    }
+
+    private func openDiff(_ filePath: String) {
+        diffPreviewFilePath = filePath
+        diffPreviewText = ""
+        diffLoading = true
+        Task {
+            defer { diffLoading = false }
+            do {
+                diffPreviewText = try await store.fetchInlineDiff(threadId: threadId, filePath: filePath)
+            } catch {
+                diffPreviewText = ""
                 localError = error.localizedDescription
             }
         }
@@ -411,9 +464,7 @@ struct PlansSheetView: View {
                                     .font(.caption.weight(.semibold))
                                     .foregroundStyle(.secondary)
 
-                                Text(plan.planMarkdown)
-                                    .font(.body)
-                                    .textSelection(.enabled)
+                                MarkdownTextBlock(markdown: plan.planMarkdown)
 
                                 HStack {
                                     Text(DateFormatting.formatTime(plan.updatedAt))

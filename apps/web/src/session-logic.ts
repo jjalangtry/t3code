@@ -410,8 +410,6 @@ export function deriveWorkLogEntries(
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
   return ordered
     .filter((activity) => (latestTurnId ? activity.turnId === latestTurnId : true))
-    .filter((activity) => activity.kind !== "tool.started")
-    .filter((activity) => activity.kind !== "task.started" && activity.kind !== "task.completed")
     .filter((activity) => activity.summary !== "Checkpoint captured")
     .map((activity) => {
       const payload =
@@ -425,7 +423,12 @@ export function deriveWorkLogEntries(
         id: activity.id,
         createdAt: activity.createdAt,
         label: activity.summary,
-        tone: activity.tone === "approval" ? "info" : activity.tone,
+        tone:
+          activity.kind === "reasoning.delta" || activity.kind === "task.progress"
+            ? "thinking"
+            : activity.tone === "approval"
+              ? "info"
+              : activity.tone,
       };
       const itemType = extractWorkLogItemType(payload);
       const requestKind = extractWorkLogRequestKind(payload);
@@ -434,6 +437,9 @@ export function deriveWorkLogEntries(
         if (detail) {
           entry.detail = detail;
         }
+      }
+      if (!entry.detail && payload && typeof payload.message === "string" && payload.message.length > 0) {
+        entry.detail = payload.message;
       }
       if (command) {
         entry.command = command;

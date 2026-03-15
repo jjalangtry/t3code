@@ -946,6 +946,37 @@ export default function ChatView({ threadId }: ChatViewProps) {
     () => deriveWorkLogEntries(threadActivities, activeLatestTurn?.turnId ?? undefined),
     [activeLatestTurn?.turnId, threadActivities],
   );
+  const reasoningByAssistantMessageId = useMemo(() => {
+    const byMessageId = new Map<MessageId, string>();
+    if (!activeThread) {
+      return byMessageId;
+    }
+    for (const message of activeThread.messages) {
+      if (message.role !== "assistant" || !message.turnId) {
+        continue;
+      }
+      const chunks = threadActivities
+        .filter(
+          (activity) =>
+            activity.turnId === message.turnId &&
+            (activity.kind === "reasoning.delta" || activity.kind === "task.progress"),
+        )
+        .map((activity) => {
+          const payload =
+            activity.payload && typeof activity.payload === "object"
+              ? (activity.payload as Record<string, unknown>)
+              : null;
+          const detail = payload && typeof payload.detail === "string" ? payload.detail.trim() : "";
+          return detail.length > 0 ? detail : "";
+        })
+        .filter((chunk) => chunk.length > 0);
+      if (chunks.length === 0) {
+        continue;
+      }
+      byMessageId.set(message.id, chunks.join("\n"));
+    }
+    return byMessageId;
+  }, [activeThread, threadActivities]);
   const latestTurnHasToolActivity = useMemo(
     () => hasToolActivityForTurn(threadActivities, activeLatestTurn?.turnId),
     [activeLatestTurn?.turnId, threadActivities],
@@ -1807,6 +1838,21 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const handleRuntimeModeChange = useCallback(
     (mode: RuntimeMode) => {
       if (mode === runtimeMode) return;
+      if (mode === "approval-required" && selectedProvider !== "codex") {
+        const providerLabel =
+          selectedProvider === "claudeCode"
+            ? "Claude Code"
+            : selectedProvider === "cursor"
+              ? "Cursor"
+              : "this provider";
+        toastManager.add({
+          type: "warning",
+          title: `${providerLabel} does not support supervised approvals`,
+          description:
+            "This provider runs in non-interactive CLI mode here. Keep runtime mode on Full access.",
+        });
+        return;
+      }
       setComposerDraftRuntimeMode(threadId, mode);
       if (isLocalDraftThread) {
         setDraftThreadContext(threadId, { runtimeMode: mode });
@@ -1816,6 +1862,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [
       isLocalDraftThread,
       runtimeMode,
+      selectedProvider,
       scheduleComposerFocus,
       setComposerDraftRuntimeMode,
       setDraftThreadContext,
@@ -3739,6 +3786,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
       {/* Error banner */}
       <ProviderHealthBanner status={activeProviderStatus} />
+      <ProviderCapabilityBanner provider={selectedProvider} runtimeMode={runtimeMode} />
       <ThreadErrorBanner
         error={activeThread.error}
         onDismiss={() => setThreadError(activeThread.id, null)}
@@ -3785,6 +3833,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
               resolvedTheme={resolvedTheme}
               timestampFormat={timestampFormat}
               workspaceRoot={activeProject?.cwd ?? undefined}
+              reasoningByAssistantMessageId={reasoningByAssistantMessageId}
             />
           </div>
 
@@ -4699,6 +4748,32 @@ const ProviderHealthBanner = memo(function ProviderHealthBanner({
         <AlertTitle>{providerLabel} provider status</AlertTitle>
         <AlertDescription className="line-clamp-3" title={status.message ?? defaultMessage}>
           {status.message ?? defaultMessage}
+        </AlertDescription>
+      </Alert>
+    </div>
+  );
+});
+
+const ProviderCapabilityBanner = memo(function ProviderCapabilityBanner({
+  provider,
+  runtimeMode,
+}: {
+  provider: ProviderKind;
+  runtimeMode: RuntimeMode;
+}) {
+  if (provider === "codex") {
+    return null;
+  }
+  const providerLabel = provider === "claudeCode" ? "Claude Code" : "Cursor";
+  const isSupervised = runtimeMode === "approval-required";
+  return (
+    <div className="pt-3 mx-auto max-w-3xl">
+      <Alert variant={isSupervised ? "warning" : "default"}>
+        <CircleAlertIcon />
+        <AlertTitle>{providerLabel} capability limits</AlertTitle>
+        <AlertDescription>
+          {providerLabel} currently runs in print-mode CLI and cannot pause for approve/reject or
+          structured user-input responses mid-turn.
         </AlertDescription>
       </Alert>
     </div>

@@ -60,10 +60,8 @@ struct MessageBubble: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(displayedText)
-                        .font(.body)
+                    MarkdownTextBlock(markdown: displayedText)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
 
                     if let attachments = message.attachments, !attachments.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
@@ -101,6 +99,25 @@ struct MessageBubble: View {
 
     private var foregroundColor: Color {
         message.role == .user ? .white : .primary
+    }
+}
+
+struct MarkdownTextBlock: View {
+    let markdown: String
+
+    var body: some View {
+        if let attributed = try? AttributedString(
+            markdown: markdown,
+            options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        ) {
+            Text(attributed)
+                .font(.body)
+                .textSelection(.enabled)
+        } else {
+            Text(markdown)
+                .font(.body)
+                .textSelection(.enabled)
+        }
     }
 }
 

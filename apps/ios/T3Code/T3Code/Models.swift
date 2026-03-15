@@ -29,6 +29,12 @@ nonisolated enum InteractionMode: String, Codable, Sendable {
     case plan
 }
 
+nonisolated enum AppThemePreference: String, Codable, Sendable, CaseIterable {
+    case system
+    case light
+    case dark
+}
+
 nonisolated enum GitStackedAction: String, Codable, Sendable, CaseIterable {
     case commit
     case commitPush = "commit_push"
@@ -309,6 +315,13 @@ nonisolated struct GitRunStackedActionResult: Codable, Sendable {
     let pr: GitActionPRResult
 }
 
+nonisolated struct ThreadTurnDiffResult: Codable, Sendable {
+    let threadId: ThreadId
+    let fromTurnCount: Int
+    let toTurnCount: Int
+    let diff: String
+}
+
 // MARK: - Terminal
 
 nonisolated enum TerminalSessionStatus: String, Codable, Sendable {
@@ -483,5 +496,28 @@ nonisolated enum JSONValue: Codable, Sendable, Hashable {
     var intValue: Int? {
         if case .int(let i) = self { return i }
         return nil
+    }
+
+    func toFoundationObject() -> Any {
+        switch self {
+        case .null:
+            return NSNull()
+        case .bool(let value):
+            return value
+        case .int(let value):
+            return value
+        case .double(let value):
+            return value
+        case .string(let value):
+            return value
+        case .array(let values):
+            return values.map { $0.toFoundationObject() }
+        case .object(let values):
+            return values.mapValues { $0.toFoundationObject() }
+        }
+    }
+
+    func toData() -> Data? {
+        try? JSONSerialization.data(withJSONObject: toFoundationObject())
     }
 }

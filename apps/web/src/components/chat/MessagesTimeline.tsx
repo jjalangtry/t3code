@@ -62,6 +62,7 @@ interface MessagesTimelineProps {
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
+  reasoningByAssistantMessageId: Map<MessageId, string>;
 }
 
 export const MessagesTimeline = memo(function MessagesTimeline({
@@ -86,6 +87,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   resolvedTheme,
   timestampFormat,
   workspaceRoot,
+  reasoningByAssistantMessageId,
 }: MessagesTimelineProps) {
   const timelineRootRef = useRef<HTMLDivElement | null>(null);
   const [timelineWidthPx, setTimelineWidthPx] = useState<number | null>(null);
@@ -277,6 +279,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const [allDirectoriesExpandedByTurnId, setAllDirectoriesExpandedByTurnId] = useState<
     Record<string, boolean>
   >({});
+  const [expandedReasoningByMessageId, setExpandedReasoningByMessageId] = useState<
+    Record<string, boolean>
+  >({});
   const onToggleAllDirectories = useCallback((turnId: TurnId) => {
     setAllDirectoriesExpandedByTurnId((current) => ({
       ...current,
@@ -412,6 +417,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         row.message.role === "assistant" &&
         (() => {
           const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
+          const reasoningText = reasoningByAssistantMessageId.get(row.message.id);
+          const reasoningExpanded = expandedReasoningByMessageId[row.message.id] ?? false;
           return (
             <>
               {row.showCompletionDivider && (
@@ -429,6 +436,32 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   cwd={markdownCwd}
                   isStreaming={Boolean(row.message.streaming)}
                 />
+                {reasoningText && (
+                  <div className="mt-2 rounded-lg border border-border/70 bg-card/45 p-2">
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between text-left"
+                      onClick={() =>
+                        setExpandedReasoningByMessageId((current) => ({
+                          ...current,
+                          [row.message.id]: !reasoningExpanded,
+                        }))
+                      }
+                    >
+                      <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/70">
+                        Thinking
+                      </span>
+                      <span className="text-[10px] text-muted-foreground/60">
+                        {reasoningExpanded ? "Hide" : "Show"}
+                      </span>
+                    </button>
+                    {reasoningExpanded && (
+                      <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-muted-foreground/85">
+                        {reasoningText}
+                      </pre>
+                    )}
+                  </div>
+                )}
                 {(() => {
                   const turnSummary = turnDiffSummaryByAssistantMessageId.get(row.message.id);
                   if (!turnSummary) return null;
